@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🔧 Audio Sync Debug</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            width: 100%; height: 100%;
+            font-family: 'Inter', system-ui, sans-serif;
+            background: #0a0a0f; color: #fff;
+            overflow-y: auto; overflow-x: hidden;
+        }
+
+        /* ── Tap overlay ──────────────────────────────────────── */
+        .tap-overlay {
+            position: fixed; inset: 0; z-index: 100;
+            background: radial-gradient(ellipse at center, #1a1a2e 0%, #0a0a0f 100%);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 28px; cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: opacity 0.4s ease;
+        }
+
+        .tap-overlay.fade-out { opacity: 0; pointer-events: none; }
+
+        .tap-icon {
+            width: 120px; height: 120px; border-radius: 50%;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 48px;
+            box-shadow: 0 0 60px rgba(99, 102, 241, 0.4);
+            animation: icon-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes icon-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+
+        .tap-text {
+            font-size: 22px; font-weight: 700;
+            background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .tap-sub { color: rgba(255,255,255,0.45); font-size: 14px; margin-top: -12px; }
+        .tap-loading { color: rgba(255,255,255,0.5); font-size: 14px; }
+
+        /* ── Debug container ──────────────────────────────────── */
+        .debug-container {
+            width: 100%; min-height: 100vh;
+            padding: 16px 12px 32px; display: flex;
+            flex-direction: column; gap: 12px;
+        }
+
+        .debug-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 4px;
+        }
+
+        .debug-header h1 {
+            font-size: 16px; font-weight: 700;
+            background: linear-gradient(135deg, #f97316, #ef4444);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .debug-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; padding: 3px 8px; border-radius: 6px;
+            background: rgba(249, 115, 22, 0.15);
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            color: #f97316;
+        }
+
+        /* ── Visualizer (compact) ────────────────────────────── */
+        .visualizer {
+            display: flex; align-items: flex-end; justify-content: center;
+            gap: 3px; height: 40px; width: 160px; margin: 0 auto;
+        }
+
+        .bar {
+            width: 5px; border-radius: 2px;
+            background: linear-gradient(to top, #818cf8, #c084fc);
+            transition: height 0.15s ease;
+        }
+
+        /* ── Section card ─────────────────────────────────────── */
+        .debug-section {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px; overflow: hidden;
+        }
+
+        .section-title {
+            font-size: 11px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 1px;
+            color: rgba(255,255,255,0.3);
+            padding: 10px 14px 6px;
+        }
+
+        /* ── Metric rows ──────────────────────────────────────── */
+        .metric-row {
+            display: flex; justify-content: space-between;
+            align-items: center; padding: 8px 14px;
+            border-top: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .metric-label {
+            font-size: 12px; color: rgba(255,255,255,0.5);
+        }
+
+        .metric-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px; font-weight: 500;
+            font-variant-numeric: tabular-nums;
+            text-align: right;
+        }
+
+        .metric-value.good { color: #22c55e; }
+        .metric-value.warn { color: #f59e0b; }
+        .metric-value.bad  { color: #ef4444; }
+        .metric-value.info { color: #818cf8; }
+
+        /* ── History log ──────────────────────────────────────── */
+        .history-log {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px; padding: 10px 14px;
+            max-height: 150px; overflow-y: auto;
+            color: rgba(255,255,255,0.5);
+            line-height: 1.6;
+        }
+
+        .history-log .entry-hard { color: #ef4444; }
+        .history-log .entry-soft { color: #f59e0b; }
+        .history-log .entry-ok   { color: #22c55e; }
+
+        /* ── Status indicator ────────────────────────────────── */
+        .status-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 4px 12px; border-radius: 12px;
+            font-size: 12px; font-weight: 600;
+        }
+
+        .status-pill.ok {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .status-pill.correcting {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <!-- ── TAP OVERLAY ──────────────────────────────────────── -->
+    <div class="tap-overlay" id="tapOverlay">
+        <div class="tap-icon" id="tapIcon">🔧</div>
+        <div class="tap-text" id="tapText">Debug Mode</div>
+        <div class="tap-sub" id="tapSub">Toque para iniciar com diagnóstico</div>
+        <div class="tap-loading hidden" id="tapLoading">⏳ Conectando ao totem...</div>
+    </div>
+
+    <!-- ── DEBUG UI ─────────────────────────────────────────── -->
+    <div class="debug-container hidden" id="mainUI">
+
+        <div class="debug-header">
+            <h1>🔧 Debug Mode</h1>
+            <span class="debug-badge" id="screenBadge">TOTEM1</span>
+        </div>
+
+        <div class="visualizer" id="visualizer">
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        </div>
+
+        <!-- ── Playback ──────────────────────────────────────── -->
+        <div class="debug-section">
+            <div class="section-title">▶️ Playback</div>
+            <div class="metric-row">
+                <span class="metric-label">Posição Real</span>
+                <span class="metric-value info" id="dbgRealPos">0.00s</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Posição Esperada</span>
+                <span class="metric-value" id="dbgExpectedPos">0.00s</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Duração</span>
+                <span class="metric-value" id="dbgDuration">--</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Playback Rate</span>
+                <span class="metric-value" id="dbgRate">1.000x</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Buffer</span>
+                <span class="metric-value" id="dbgBuffer">0%</span>
+            </div>
+        </div>
+
+        <!-- ── Sync ──────────────────────────────────────────── -->
+        <div class="debug-section">
+            <div class="section-title">🔗 Sincronização</div>
+            <div class="metric-row">
+                <span class="metric-label">Server Offset</span>
+                <span class="metric-value info" id="dbgServerOffset">--</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Latência WS</span>
+                <span class="metric-value" id="dbgLatency">--</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Start Time (epoch)</span>
+                <span class="metric-value" id="dbgStartTime">--</span>
+            </div>
+        </div>
+
+        <!-- ── Drift ─────────────────────────────────────────── -->
+        <div class="debug-section">
+            <div class="section-title">📐 Drift</div>
+            <div class="metric-row">
+                <span class="metric-label">Drift Atual</span>
+                <span class="metric-value good" id="dbgDrift">—</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Status</span>
+                <span class="status-pill ok" id="dbgStatus">OK ✓</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Correções HARD</span>
+                <span class="metric-value bad" id="dbgHardCount">0</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Correções SOFT</span>
+                <span class="metric-value warn" id="dbgSoftCount">0</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Última Correção</span>
+                <span class="metric-value" id="dbgLastCorrection">—</span>
+            </div>
+        </div>
+
+        <!-- ── History ───────────────────────────────────────── -->
+        <div class="debug-section">
+            <div class="section-title">📋 Histórico (últimas 10)</div>
+            <div class="history-log" id="dbgHistory">
+                <div style="color: rgba(255,255,255,0.3)">Aguardando dados...</div>
+            </div>
+        </div>
+    </div>
+
+    <audio id="audio" preload="auto">
+        <source src="/media/99_audio.mp3" type="audio/mpeg">
+    </audio>
+
+    <script>
+        // ── Config ─────────────────────────────────────────────
+        const params    = new URLSearchParams(location.search);
+        const SCREEN_ID = params.get("screen") || "totem1";
+        const WS_HOST   = location.host;
+        const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
+
+        document.getElementById("screenBadge").textContent = SCREEN_ID.toUpperCase();
+
+        // ── Elements ───────────────────────────────────────────
+        const audio      = document.getElementById("audio");
+        const tapOverlay = document.getElementById("tapOverlay");
+        const tapIcon    = document.getElementById("tapIcon");
+        const tapText    = document.getElementById("tapText");
+        const tapSub     = document.getElementById("tapSub");
+        const tapLoading = document.getElementById("tapLoading");
+        const mainUI     = document.getElementById("mainUI");
+        const bars       = document.querySelectorAll(".bar");
+
+        let syncData      = null;
+        let isPlaying     = false;
+        let driftWs       = null;
+        let userTapped    = false;
+        let localReceiveT = 0;
+
+        // ── Debug counters ─────────────────────────────────────
+        let hardCount = 0;
+        let softCount = 0;
+        let historyEntries = [];
+        const MAX_HISTORY = 10;
+
+        // ── Helpers ────────────────────────────────────────────
+        function fmt(s) {
+            const m = Math.floor(s / 60);
+            const sec = Math.floor(s % 60);
+            return `${m}:${sec.toString().padStart(2, "0")}`;
+        }
+
+        function timeStr() {
+            const d = new Date();
+            return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
+        }
+
+        function addHistory(type, msg) {
+            const cls = type === "HARD" ? "entry-hard" : type === "SOFT" ? "entry-soft" : "entry-ok";
+            historyEntries.unshift({ cls, msg: `[${timeStr()}] ${msg}` });
+            if (historyEntries.length > MAX_HISTORY) historyEntries.pop();
+
+            const el = document.getElementById("dbgHistory");
+            el.innerHTML = historyEntries.map(e =>
+                `<div class="${e.cls}">${e.msg}</div>`
+            ).join("");
+        }
+
+        // ── Core sync formula ──────────────────────────────────
+        function calcPosition(serverTime, startTime, duration) {
+            return ((serverTime - startTime) % duration + duration) % duration;
+        }
+
+        function calcCurrentPosition() {
+            if (!syncData) return 0;
+            const now = Date.now() / 1000;
+            const serverOffset = syncData.server_time - localReceiveT;
+            const serverNow = now + serverOffset;
+            return calcPosition(serverNow, syncData.start_time, syncData.duration);
+        }
+
+        // ── Start audio at synced position ─────────────────────
+        function startSyncedAudio() {
+            const position = calcCurrentPosition();
+            audio.currentTime = position;
+            const playPromise = audio.play();
+
+            if (playPromise) {
+                playPromise.then(() => {
+                    onPlaybackStarted(position);
+                }).catch(err => {
+                    tapOverlay.classList.remove("hidden");
+                    tapText.textContent = "Toque para ouvir";
+                    tapIcon.textContent = "🔧";
+                    tapSub.classList.remove("hidden");
+                    tapLoading.classList.add("hidden");
+                });
+            }
+        }
+
+        function onPlaybackStarted(position) {
+            isPlaying = true;
+
+            tapOverlay.classList.add("fade-out");
+            setTimeout(() => {
+                tapOverlay.classList.add("hidden");
+                mainUI.classList.remove("hidden");
+            }, 400);
+
+            // Set initial debug values
+            const offset = syncData.server_time - localReceiveT;
+            document.getElementById("dbgDuration").textContent = `${syncData.duration.toFixed(2)}s`;
+            document.getElementById("dbgServerOffset").textContent = `${(offset * 1000).toFixed(0)}ms`;
+            document.getElementById("dbgStartTime").textContent = syncData.start_time.toFixed(3);
+
+            startVisualizer();
+            startDriftConnection();
+            startDebugLoop();
+
+            addHistory("OK", `Playback started at ${position.toFixed(2)}s`);
+        }
+
+        // ── TAP handler ────────────────────────────────────────
+        tapOverlay.addEventListener("click", () => {
+            userTapped = true;
+
+            if (syncData) {
+                const position = calcCurrentPosition();
+                audio.currentTime = position;
+                audio.play().then(() => onPlaybackStarted(position)).catch(console.error);
+            } else {
+                tapText.textContent = "Conectando...";
+                tapIcon.textContent = "⏳";
+                tapSub.classList.add("hidden");
+                tapLoading.classList.remove("hidden");
+            }
+        });
+
+        // ── Connect to mobile WS ──────────────────────────────
+        function connectSync() {
+            tapLoading.classList.remove("hidden");
+
+            const wsSendT = Date.now();
+            const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/mobile/${SCREEN_ID}`);
+
+            ws.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                localReceiveT = Date.now() / 1000;
+
+                // Measure WS latency (open → first message)
+                const latency = Date.now() - wsSendT;
+                document.getElementById("dbgLatency").textContent = `${latency}ms`;
+
+                if (data.type === "sync") {
+                    syncData = data;
+                    startSyncedAudio();
+
+                    if (userTapped && !isPlaying) {
+                        const pos = calcCurrentPosition();
+                        audio.currentTime = pos;
+                        audio.play().then(() => onPlaybackStarted(pos)).catch(console.error);
+                    }
+                }
+            };
+
+            ws.onerror = () => {
+                tapText.textContent = "Erro de conexão";
+                tapIcon.textContent = "❌";
+                tapSub.textContent = "Toque para tentar novamente";
+                tapSub.classList.remove("hidden");
+                tapLoading.classList.add("hidden");
+            };
+
+            ws.onclose = (e) => {
+                if (e.code === 4004) {
+                    tapText.textContent = "Totem não encontrado";
+                    tapIcon.textContent = "📡";
+                    tapSub.textContent = "Tentando novamente...";
+                    tapSub.classList.remove("hidden");
+                    setTimeout(connectSync, 3000);
+                }
+            };
+        }
+
+        // ── Audio loop ─────────────────────────────────────────
+        audio.addEventListener("ended", () => {
+            if (isPlaying && syncData) {
+                audio.currentTime = 0;
+                audio.play();
+                addHistory("OK", "Audio loop restart");
+            }
+        });
+
+        // ── Drift correction ───────────────────────────────────
+        function startDriftConnection() {
+            if (!syncData || !syncData.drift_enabled) return;
+
+            driftWs = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/drift/${SCREEN_ID}`);
+
+            driftWs.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+
+                if (data.type === "drift_check" && isPlaying) {
+                    driftWs.send(JSON.stringify({
+                        type: "position_report",
+                        position: audio.currentTime,
+                    }));
+
+                    // Update expected position from server
+                    document.getElementById("dbgExpectedPos").textContent =
+                        `${data.expected_position.toFixed(2)}s`;
+                }
+
+                if (data.type === "drift_correction") {
+                    const dbgDrift = document.getElementById("dbgDrift");
+                    const dbgStatus = document.getElementById("dbgStatus");
+                    dbgDrift.textContent = `${data.drift_ms}ms`;
+
+                    if (data.mode === "HARD") {
+                        hardCount++;
+                        audio.currentTime = data.target_time;
+                        document.getElementById("dbgHardCount").textContent = hardCount;
+                        dbgDrift.className = "metric-value bad";
+                        dbgStatus.className = "status-pill correcting";
+                        dbgStatus.textContent = "HARD ⚡";
+                        document.getElementById("dbgLastCorrection").textContent =
+                            `HARD ${data.drift_ms}ms @ ${timeStr()}`;
+                        addHistory("HARD", `Jump to ${data.target_time.toFixed(2)}s (${data.drift_ms}ms drift)`);
+
+                    } else if (data.mode === "SOFT") {
+                        softCount++;
+                        audio.playbackRate = data.playback_rate;
+                        document.getElementById("dbgSoftCount").textContent = softCount;
+                        dbgDrift.className = "metric-value warn";
+                        dbgStatus.className = "status-pill correcting";
+                        dbgStatus.textContent = `SOFT ${data.playback_rate}x`;
+                        document.getElementById("dbgLastCorrection").textContent =
+                            `SOFT ${data.drift_ms}ms @ ${timeStr()}`;
+                        addHistory("SOFT", `Rate → ${data.playback_rate}x (${data.drift_ms}ms drift)`);
+                        setTimeout(() => { audio.playbackRate = 1.0; }, 2000);
+                    }
+                }
+
+                if (data.type === "drift_ok") {
+                    const dbgDrift = document.getElementById("dbgDrift");
+                    const dbgStatus = document.getElementById("dbgStatus");
+                    dbgDrift.textContent = "< 120ms";
+                    dbgDrift.className = "metric-value good";
+                    dbgStatus.className = "status-pill ok";
+                    dbgStatus.textContent = "OK ✓";
+                }
+            };
+
+            driftWs.onclose = () => {
+                addHistory("HARD", "Drift WS disconnected");
+            };
+        }
+
+        // ── Visualizer ─────────────────────────────────────────
+        function startVisualizer() {
+            function animate() {
+                if (!isPlaying) return;
+                bars.forEach(bar => {
+                    bar.style.height = `${4 + Math.random() * 40}px`;
+                });
+                requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
+        // ── Debug update loop (runs every frame) ───────────────
+        function startDebugLoop() {
+            function tick() {
+                if (!isPlaying || !syncData) return;
+
+                // Real position
+                document.getElementById("dbgRealPos").textContent =
+                    `${audio.currentTime.toFixed(2)}s`;
+
+                // Playback rate
+                const rate = audio.playbackRate;
+                const rateEl = document.getElementById("dbgRate");
+                rateEl.textContent = `${rate.toFixed(3)}x`;
+                rateEl.className = rate === 1 ? "metric-value good" : "metric-value warn";
+
+                // Buffer
+                if (audio.buffered.length > 0) {
+                    const buffEnd = audio.buffered.end(audio.buffered.length - 1);
+                    const pct = Math.round((buffEnd / audio.duration) * 100);
+                    document.getElementById("dbgBuffer").textContent = `${pct}%`;
+                }
+
+                // Expected position (client calc)
+                const expected = calcCurrentPosition();
+                document.getElementById("dbgExpectedPos").textContent =
+                    `${expected.toFixed(2)}s`;
+
+                requestAnimationFrame(tick);
+            }
+            tick();
+        }
+
+        // ── Init ───────────────────────────────────────────────
+        connectSync();
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible" && !syncData) {
+                connectSync();
+            }
+        });
+    </script>
+</body>
+</html>

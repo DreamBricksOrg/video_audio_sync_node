@@ -1,0 +1,14 @@
+{
+  "name": "ooh-audio-sync",
+  "version": "1.0.0",
+  "description": "OOH Audio Sync — Video plays on totem, users scan QR to sync audio on their phones",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.18.0"
+  }
+}

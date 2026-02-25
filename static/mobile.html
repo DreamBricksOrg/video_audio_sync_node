@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🎧 Audio Sync</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            width: 100%; height: 100%; overflow: hidden;
+            font-family: 'Inter', system-ui, sans-serif;
+            background: #0a0a0f; color: #fff;
+        }
+
+        /* ── Tap-to-start overlay (autoplay fallback) ───────── */
+        .tap-overlay {
+            position: fixed; inset: 0; z-index: 100;
+            background: radial-gradient(ellipse at center, #1a1a2e 0%, #0a0a0f 100%);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 28px; cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            transition: opacity 0.4s ease;
+        }
+
+        .tap-overlay.fade-out {
+            opacity: 0; pointer-events: none;
+        }
+
+        .tap-icon {
+            width: 120px; height: 120px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 48px;
+            box-shadow: 0 0 60px rgba(99, 102, 241, 0.4);
+            animation: icon-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes icon-pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 60px rgba(99, 102, 241, 0.4); }
+            50% { transform: scale(1.08); box-shadow: 0 0 80px rgba(99, 102, 241, 0.6); }
+        }
+
+        .tap-text {
+            font-size: 22px; font-weight: 700;
+            background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .tap-sub {
+            color: rgba(255,255,255,0.45); font-size: 14px;
+            margin-top: -12px;
+        }
+
+        .tap-loading {
+            color: rgba(255,255,255,0.5); font-size: 14px;
+        }
+
+        /* ── Main container (shown after play starts) ───────── */
+        .mobile-container {
+            width: 100%; height: 100%;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            padding: 32px 24px; gap: 28px;
+        }
+
+        .header { text-align: center; }
+
+        .header h1 {
+            font-size: 24px; font-weight: 700;
+            background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* ── Visualizer ─────────────────────────────────────── */
+        .visualizer {
+            display: flex; align-items: flex-end; justify-content: center;
+            gap: 4px; height: 60px; width: 200px;
+        }
+
+        .bar {
+            width: 6px;
+            background: linear-gradient(to top, #818cf8, #c084fc);
+            border-radius: 3px; transition: height 0.15s ease;
+        }
+
+        .visualizer.idle .bar {
+            height: 4px !important;
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        /* ── Status Badge ───────────────────────────────────── */
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 8px 16px; border-radius: 20px;
+            font-size: 14px; font-weight: 600;
+        }
+
+        .status-badge.playing {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .status-badge.error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        /* ── Info Grid ──────────────────────────────────────── */
+        .info {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 12px; width: 100%; max-width: 360px;
+        }
+
+        .info-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px; padding: 12px; text-align: center;
+        }
+
+        .info-label {
+            font-size: 11px; color: rgba(255,255,255,0.35);
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+
+        .info-value {
+            font-size: 16px; font-weight: 600; margin-top: 4px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <!-- ── OVERLAY: toque para iniciar (autoplay fallback) ── -->
+    <div class="tap-overlay" id="tapOverlay">
+        <div class="tap-icon" id="tapIcon">🎧</div>
+        <div class="tap-text" id="tapText">Toque para ouvir</div>
+        <div class="tap-sub" id="tapSub">O áudio será sincronizado automaticamente</div>
+        <div class="tap-loading hidden" id="tapLoading">⏳ Conectando ao totem...</div>
+    </div>
+
+    <!-- ── MAIN: mostrado após o áudio começar ──────────── -->
+    <div class="mobile-container hidden" id="mainUI">
+        <div class="header">
+            <h1>🎧 Reproduzindo</h1>
+        </div>
+
+        <div class="visualizer" id="visualizer">
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        </div>
+
+        <div class="status-badge playing" id="statusBadge">
+            <span id="statusIcon">🎵</span>
+            <span id="statusLabel">Sincronizado</span>
+        </div>
+    </div>
+
+    <audio id="audio" preload="auto">
+        <source src="/media/99_audio.mp3" type="audio/mpeg">
+    </audio>
+
+    <script>
+        // ── Config ─────────────────────────────────────────────
+        const params    = new URLSearchParams(location.search);
+        const SCREEN_ID = params.get("screen") || "totem1";
+        const WS_HOST   = location.host;
+        const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
+
+        // ── Elements ───────────────────────────────────────────
+        const audio      = document.getElementById("audio");
+        const tapOverlay = document.getElementById("tapOverlay");
+        const tapIcon    = document.getElementById("tapIcon");
+        const tapText    = document.getElementById("tapText");
+        const tapSub     = document.getElementById("tapSub");
+        const tapLoading = document.getElementById("tapLoading");
+        const mainUI     = document.getElementById("mainUI");
+        const bars       = document.querySelectorAll(".bar");
+
+        let syncData      = null;
+        let isPlaying     = false;
+        let driftWs       = null;
+        let userTapped    = false;
+        let localReceiveT = 0;
+
+        // ── Helpers ────────────────────────────────────────────
+        function fmt(s) {
+            const m = Math.floor(s / 60);
+            const sec = Math.floor(s % 60);
+            return `${m}:${sec.toString().padStart(2, "0")}`;
+        }
+
+        // ── Core sync formula (client-side!) ───────────────────
+        function calcPosition(serverTime, startTime, duration) {
+            return ((serverTime - startTime) % duration + duration) % duration;
+        }
+
+        function calcCurrentPosition() {
+            if (!syncData) return 0;
+            const now = Date.now() / 1000;
+            const serverOffset = syncData.server_time - localReceiveT;
+            const serverNow = now + serverOffset;
+            return calcPosition(serverNow, syncData.start_time, syncData.duration);
+        }
+
+        // ── Start audio at synced position ─────────────────────
+        function startSyncedAudio() {
+            const position = calcCurrentPosition();
+            console.log(`[Mobile] Starting audio at position: ${position.toFixed(2)}s`);
+
+            audio.currentTime = position;
+            const playPromise = audio.play();
+
+            if (playPromise) {
+                playPromise.then(() => {
+                    onPlaybackStarted(position);
+                }).catch(err => {
+                    console.warn("[Mobile] Autoplay blocked, waiting for tap:", err.message);
+                    // Show tap overlay — will be handled by tap event
+                    tapOverlay.classList.remove("hidden");
+                    tapText.textContent = "Toque para ouvir";
+                    tapIcon.textContent = "🎧";
+                    tapSub.classList.remove("hidden");
+                    tapLoading.classList.add("hidden");
+                });
+            }
+        }
+
+        function onPlaybackStarted(position) {
+            isPlaying = true;
+
+            // Fade out overlay, show main UI
+            tapOverlay.classList.add("fade-out");
+            setTimeout(() => {
+                tapOverlay.classList.add("hidden");
+                mainUI.classList.remove("hidden");
+            }, 400);
+
+            startVisualizer();
+            startDriftConnection();
+
+            console.log(`[Mobile] Playing synced at ${fmt(position)}`);
+        }
+
+        // ── TAP overlay handler ────────────────────────────────
+        tapOverlay.addEventListener("click", () => {
+            userTapped = true;
+
+            if (syncData) {
+                // Sync data already received — play immediately
+                const position = calcCurrentPosition();
+                audio.currentTime = position;
+                audio.play().then(() => onPlaybackStarted(position)).catch(console.error);
+            } else {
+                // Still waiting for sync — show loading
+                tapText.textContent = "Conectando...";
+                tapIcon.textContent = "⏳";
+                tapSub.classList.add("hidden");
+                tapLoading.classList.remove("hidden");
+            }
+        });
+
+        // ── Connect to mobile WS ──────────────────────────────
+        function connectSync() {
+            tapLoading.classList.remove("hidden");
+
+            const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/mobile/${SCREEN_ID}`);
+
+            ws.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                localReceiveT = Date.now() / 1000;
+                console.log("[Mobile] Sync data:", data);
+
+                if (data.type === "sync") {
+                    syncData = data;
+
+                    // Try autoplay immediately
+                    startSyncedAudio();
+
+                    // If user already tapped but data wasn't ready
+                    if (userTapped && !isPlaying) {
+                        const pos = calcCurrentPosition();
+                        audio.currentTime = pos;
+                        audio.play().then(() => onPlaybackStarted(pos)).catch(console.error);
+                    }
+                }
+            };
+
+            ws.onerror = () => {
+                tapText.textContent = "Erro de conexão";
+                tapIcon.textContent = "❌";
+                tapSub.textContent = "Toque para tentar novamente";
+                tapSub.classList.remove("hidden");
+                tapLoading.classList.add("hidden");
+            };
+
+            ws.onclose = (e) => {
+                if (e.code === 4004) {
+                    tapText.textContent = "Totem não encontrado";
+                    tapIcon.textContent = "📡";
+                    tapSub.textContent = "Tentando novamente...";
+                    tapSub.classList.remove("hidden");
+                    setTimeout(connectSync, 3000);
+                }
+            };
+        }
+
+        // ── Audio loop (match video loop) ──────────────────────
+        audio.addEventListener("ended", () => {
+            if (isPlaying && syncData) {
+                audio.currentTime = 0;
+                audio.play();
+            }
+        });
+
+        // ── Drift correction ───────────────────────────────────
+        function startDriftConnection() {
+            if (!syncData || !syncData.drift_enabled) return;
+
+            driftWs = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/drift/${SCREEN_ID}`);
+
+            driftWs.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+
+                if (data.type === "drift_check" && isPlaying) {
+                    driftWs.send(JSON.stringify({
+                        type: "position_report",
+                        position: audio.currentTime,
+                    }));
+                }
+
+                if (data.type === "drift_correction") {
+                    console.log(`[Mobile] Drift correction: ${data.mode} (${data.drift_ms}ms)`);
+
+                    if (data.mode === "HARD") {
+                        audio.currentTime = data.target_time;
+                    } else if (data.mode === "SOFT") {
+                        audio.playbackRate = data.playback_rate;
+                        setTimeout(() => { audio.playbackRate = 1.0; }, 2000);
+                    }
+                }
+            };
+
+            driftWs.onclose = () => console.log("[Mobile] Drift WS closed");
+        }
+
+        // ── Visualizer ─────────────────────────────────────────
+        function startVisualizer() {
+            function animate() {
+                if (!isPlaying) return;
+                bars.forEach(bar => {
+                    bar.style.height = `${4 + Math.random() * 52}px`;
+                });
+                requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
+        // ── Init ───────────────────────────────────────────────
+        connectSync();
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible" && !syncData) {
+                connectSync();
+            }
+        });
+    </script>
+</body>
+</html>

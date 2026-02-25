@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1080, height=1920, initial-scale=1.0">
+    <title>OOH Totem — Audio Sync</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 1080px;
+            height: 1920px;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+        }
+
+        .totem-container {
+            position: relative;
+            width: 1080px;
+            height: 1920px;
+            overflow: hidden;
+        }
+
+        /* ── Video ──────────────────────────────────────────── */
+        #video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1080px;
+            height: 1920px;
+            object-fit: cover;
+        }
+
+        /* ── QR overlay ─────────────────────────────────────── */
+        .qr-overlay {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            z-index: 10;
+            transition: opacity 0.6s ease;
+        }
+
+        .qr-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .qr-card {
+            background: rgba(0, 0, 0, 0.65);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 28px;
+            padding: 36px 44px 28px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.5),
+                0 0 80px rgba(99, 102, 241, 0.08);
+        }
+
+        .qr-wrapper {
+            background: #fff;
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .qr-wrapper canvas {
+            border-radius: 8px;
+        }
+
+        .qr-label {
+            color: #fff;
+            font-size: 22px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-align: center;
+            line-height: 1.4;
+        }
+
+        .qr-label .icon {
+            font-size: 28px;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        .qr-sublabel {
+            color: rgba(255, 255, 255, 0.55);
+            font-size: 15px;
+            font-weight: 400;
+            letter-spacing: 0.3px;
+        }
+
+        /* ── Status indicator ──────────────────────────────── */
+        .status-bar {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(12px);
+            border-radius: 20px;
+            padding: 8px 16px;
+            z-index: 10;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #22c55e;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        .status-dot.error {
+            background: #ef4444;
+            animation: none;
+        }
+
+        .status-text {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.85); }
+        }
+
+        /* ── Scan animation ────────────────────────────────── */
+        .scan-ring {
+            position: absolute;
+            width: 260px;
+            height: 260px;
+            border: 2px solid rgba(99, 102, 241, 0.3);
+            border-radius: 24px;
+            animation: scan-pulse 3s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        @keyframes scan-pulse {
+            0%, 100% { transform: scale(1); opacity: 0; }
+            50% { transform: scale(1.12); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="totem-container">
+        <!-- Video: direct src, browser handles buffering -->
+        <video id="video" autoplay loop muted playsinline preload="auto">
+            <source src="/media/99_video.mp4" type="video/mp4">
+        </video>
+
+        <!-- Status -->
+        <!-- <div class="status-bar">
+            <div class="status-dot" id="statusDot"></div>
+            <span class="status-text" id="statusText">Conectando...</span>
+        </div> -->
+
+        <!-- QR Code -->
+        <div class="qr-overlay">
+            <div class="qr-card">
+                <div class="scan-ring"></div>
+                <div class="qr-wrapper" id="qrWrapper"></div>
+                <div class="qr-label">
+                    <span class="icon">🎧</span> Escaneie para ouvir o áudio
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR Code library -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+    <script>
+        // ── Config ─────────────────────────────────────────────
+        const SCREEN_ID = "totem1";
+        const API_KEY   = "your-secret-api-key-here";
+        const WS_HOST   = location.host;
+        const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
+        const MOBILE_URL = `${location.protocol}//${location.host}/static/mobile.html?screen=${SCREEN_ID}`;
+
+        const video     = document.getElementById("video");
+        const statusDot = document.getElementById("statusDot");
+        const statusTxt = document.getElementById("statusText");
+        const qrOverlay = document.querySelector(".qr-overlay");
+
+        let registered = false;
+        let loopsToHide = 0;
+
+        // ── Generate QR ────────────────────────────────────────
+        new QRCode(document.getElementById("qrWrapper"), {
+            text: MOBILE_URL, width: 200, height: 200,
+            colorDark: "#000000", colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H,
+        });
+
+        // ── QR hide/show (hides for N video loops) ─────────────
+        function hideQrForLoops(count) {
+            loopsToHide = count;
+            qrOverlay.classList.add("hidden");
+            console.log(`[Totem] QR hidden for ${count} loops`);
+        }
+
+        // Detect video loop via 'seeked' (fires when <video loop> wraps to 0)
+        video.addEventListener("seeked", () => {
+            if (loopsToHide > 0 && video.currentTime < 1) {
+                loopsToHide--;
+                console.log(`[Totem] Loop — ${loopsToHide} remaining`);
+                if (loopsToHide <= 0) {
+                    qrOverlay.classList.remove("hidden");
+                    console.log("[Totem] QR visible again");
+                }
+            }
+        });
+
+        // ── Register session (WS stays open for notifications) ─
+        function registerSession() {
+            if (registered) return;
+            registered = true;
+
+            const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/screen/${SCREEN_ID}?api_key=${API_KEY}`);
+
+            ws.onopen = () => {
+                const now = Date.now() / 1000;
+                ws.send(JSON.stringify({
+                    start_time: now - video.currentTime,
+                    duration: video.duration || 30,
+                    mode: "sync",
+                    drift_enabled: true,
+                }));
+                statusDot.classList.remove("error");
+                statusTxt.textContent = "Ao vivo";
+                console.log(`[Totem] Session registered — ${video.duration}s`);
+            };
+
+            ws.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.type === "mobile_connected") {
+                        hideQrForLoops(2);
+                    }
+                } catch (_) {}
+            };
+
+            ws.onerror = () => {
+                statusDot.classList.add("error");
+                statusTxt.textContent = "Erro de conexão";
+                registered = false;
+            };
+
+            ws.onclose = () => {
+                console.log("[Totem] WS closed — reconnecting in 3s");
+                registered = false;
+                setTimeout(registerSession, 3000);
+            };
+        }
+
+        // ── Boot ───────────────────────────────────────────────
+        video.addEventListener("loadedmetadata", () => {
+            console.log(`[Totem] Video ready — ${video.duration}s`);
+            registerSession();
+        });
+
+        setTimeout(() => {
+            if (!registered) registerSession();
+        }, 5000);
+    </script>
+</body>
+</html>
+
