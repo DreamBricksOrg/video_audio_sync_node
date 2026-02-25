@@ -233,24 +233,37 @@
         });
 
         // ── Register session (WS stays open for notifications) ─
+        let screenWs = null;
+
         function registerSession() {
             if (registered) return;
             registered = true;
 
             const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/screen/${SCREEN_ID}?api_key=${API_KEY}`);
+            screenWs = ws;
 
             ws.onopen = () => {
-                const now = Date.now() / 1000;
+                // Send current_time — server computes start_time with its own clock
                 ws.send(JSON.stringify({
-                    start_time: now - video.currentTime,
+                    current_time: video.currentTime,
                     duration: video.duration || 30,
                     mode: "sync",
                     drift_enabled: true,
                 }));
-                statusDot.classList.remove("error");
-                statusTxt.textContent = "Ao vivo";
-                console.log(`[Totem] Session registered — ${video.duration}s`);
+                console.log(`[Totem] Session registered — ${video.duration}s, pos: ${video.currentTime.toFixed(2)}s`);
             };
+
+            // Periodically send position updates so server recalculates start_time
+            const posInterval = setInterval(() => {
+                if (ws.readyState === 1) {
+                    ws.send(JSON.stringify({
+                        type: "position_update",
+                        current_time: video.currentTime,
+                    }));
+                } else {
+                    clearInterval(posInterval);
+                }
+            }, 5000);
 
             ws.onmessage = (e) => {
                 try {
@@ -262,14 +275,14 @@
             };
 
             ws.onerror = () => {
-                statusDot.classList.add("error");
-                statusTxt.textContent = "Erro de conexão";
                 registered = false;
             };
 
             ws.onclose = () => {
                 console.log("[Totem] WS closed — reconnecting in 3s");
+                clearInterval(posInterval);
                 registered = false;
+                screenWs = null;
                 setTimeout(registerSession, 3000);
             };
         }

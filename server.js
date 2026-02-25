@@ -28,8 +28,8 @@ const url = require("url");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8000;
-const DRIFT_THRESHOLD_MS = 120;
-const DRIFT_INTERVAL_MS = 3000;
+const DRIFT_THRESHOLD_MS = 80;
+const DRIFT_INTERVAL_MS = 2000;
 const MAX_MOBILE_PER_SCREEN = 50;
 const ASSETS_DIR = path.join(__dirname, "assets");
 const STATIC_DIR = path.join(__dirname, "static");
@@ -196,15 +196,33 @@ function handleScreen(ws, screenId) {
   ws.on("message", (raw) => {
     try {
       const data = JSON.parse(raw);
+
+      if (data.type === "position_update") {
+        // Periodic position update from totem — recalculate start_time
+        // using SERVER clock so all time references stay in the same domain
+        const session = sessions[screenId];
+        if (session) {
+          const serverNow = Date.now() / 1000;
+          session.start_time = serverNow - data.current_time;
+          console.log(`[Screen] ${screenId} position update: ${data.current_time.toFixed(2)}s → start_time recalc`);
+        }
+        return;
+      }
+
+      // Initial registration: totem sends current_time (video.currentTime),
+      // server computes start_time using its OWN clock
+      const serverNow = Date.now() / 1000;
+      const currentTime = data.current_time || 0;
+
       sessions[screenId] = {
-        start_time: data.start_time,
+        start_time: serverNow - currentTime,
         duration: data.duration,
         mode: data.mode || "sync",
         drift_enabled: data.drift_enabled || false,
-        created_at: Date.now() / 1000,
+        created_at: serverNow,
       };
 
-      console.log(`[Screen] Session: ${screenId} — ${sessions[screenId].duration}s`);
+      console.log(`[Screen] Session: ${screenId} — ${sessions[screenId].duration}s (pos: ${currentTime.toFixed(2)}s)`);
       safeSend(ws, { type: "session_created", screen_id: screenId });
       // WS stays open to receive notifications (e.g. mobile_connected)
     } catch (err) {
