@@ -169,9 +169,8 @@
         </div>
     </div>
 
-    <audio id="audio" preload="auto">
-        <source src="/media/99_audio.mp3" type="audio/mpeg">
-    </audio>
+    <!-- HTML5 audio element — iOS needs this for audio session activation -->
+    <audio id="audioPlayer" preload="auto" playsinline></audio>
 
     <script>
         // ── Config ─────────────────────────────────────────────
@@ -179,9 +178,9 @@
         const SCREEN_ID = params.get("screen") || "totem1";
         const WS_HOST   = location.host;
         const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
+        const AUDIO_URL = "/media/99_audio.mp3";
 
         // ── Elements ───────────────────────────────────────────
-        const audio      = document.getElementById("audio");
         const tapOverlay = document.getElementById("tapOverlay");
         const tapIcon    = document.getElementById("tapIcon");
         const tapText    = document.getElementById("tapText");
@@ -189,21 +188,29 @@
         const tapLoading = document.getElementById("tapLoading");
         const mainUI     = document.getElementById("mainUI");
         const bars       = document.querySelectorAll(".bar");
+        const audio      = document.getElementById("audioPlayer");
 
+        // ── State ──────────────────────────────────────────────
         let syncData      = null;
         let isPlaying     = false;
         let driftWs       = null;
         let userTapped    = false;
         let localReceiveT = 0;
+        let playStartedAt = 0;
+
+        // ── Web Audio API state ────────────────────────────────
+        let audioCtx       = null;
+        let audioBuffer    = null;
+        let sourceNode     = null;
+        let startCtxTime   = 0;
+        let startOffset    = 0;
+        let usingWebAudio  = false;
+
+        // Set audio source for <audio> element
+        audio.src = AUDIO_URL;
+        audio.loop = true;
 
         // ── Helpers ────────────────────────────────────────────
-        function fmt(s) {
-            const m = Math.floor(s / 60);
-            const sec = Math.floor(s % 60);
-            return `${m}:${sec.toString().padStart(2, "0")}`;
-        }
-
-        // ── Core sync formula (client-side!) ───────────────────
         function calcPosition(serverTime, startTime, duration) {
             return ((serverTime - startTime) % duration + duration) % duration;
         }
@@ -216,56 +223,147 @@
             return calcPosition(serverNow, syncData.start_time, syncData.duration);
         }
 
-        // ── Start audio at synced position ─────────────────────
-        function startSyncedAudio() {
+        function getPlaybackPosition() {
+            if (usingWebAudio && audioCtx) {
+                const elapsed = audioCtx.currentTime - startCtxTime;
+                const dur = audioBuffer ? audioBuffer.duration : (syncData ? syncData.duration : 1);
+                return ((startOffset + elapsed) % dur + dur) % dur;
+            }
+            return audio.currentTime;
+        }
+
+        // ── Web Audio: play from offset ────────────────────────
+        function webAudioPlayFrom(offset) {
+            if (sourceNode) {
+                try { sourceNode.onended = null; sourceNode.stop(); } catch(e) {}
+            }
+
+            sourceNode = audioCtx.createBufferSource();
+            sourceNode.buffer = audioBuffer;
+            sourceNode.connect(audioCtx.destination);
+
+            sourceNode.onended = () => {
+                if (isPlaying && syncData) {
+                    webAudioPlayFrom(calcCurrentPosition());
+                }
+            };
+
+            startOffset  = offset % audioBuffer.duration;
+            startCtxTime = audioCtx.currentTime;
+
+            const remaining = audioBuffer.duration - startOffset;
+            sourceNode.start(0, startOffset, remaining);
+        }
+
+        // ── Handoff: <audio> → Web Audio API ───────────────────
+        function switchToWebAudio() {
             const position = calcCurrentPosition();
-            console.log(`[Mobile] Starting audio at position: ${position.toFixed(2)}s`);
+            webAudioPlayFrom(position);
+            usingWebAudio = true;
 
-            audio.currentTime = position;
-            const playPromise = audio.play();
+            // Mute <audio> but keep it playing (keeps iOS session alive)
+            // iOS ignores .volume=0, MUST use .muted=true
+            audio.muted = true;
+            audio.volume = 0;
+            console.log(`[Hybrid] Switched to WebAudio at ${position.toFixed(2)}s`);
+        }
 
-            if (playPromise) {
-                playPromise.then(() => {
-                    onPlaybackStarted(position);
-                }).catch(err => {
-                    console.warn("[Mobile] Autoplay blocked, waiting for tap:", err.message);
-                    // Show tap overlay — will be handled by tap event
-                    tapOverlay.classList.remove("hidden");
-                    tapText.textContent = "Toque para ouvir";
-                    tapIcon.textContent = "🎧";
-                    tapSub.classList.remove("hidden");
-                    tapLoading.classList.add("hidden");
-                });
+        // ── Background: fetch + decode + switch ────────────────
+        async function loadAndSwitch() {
+            try {
+                // AudioContext is now created synchronously in startPlayback()
+                const response = await fetch(AUDIO_URL);
+                const arrayBuf = await response.arrayBuffer();
+                audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
+
+                console.log(`[Hybrid] Buffer ready: ${audioBuffer.duration.toFixed(2)}s`);
+                switchToWebAudio();
+            } catch (err) {
+                console.warn("[Hybrid] WebAudio failed, staying with <audio>:", err);
             }
         }
 
-        function onPlaybackStarted(position) {
-            isPlaying = true;
+        // 1-second silent MP3 base64 to keep iOS session permanently active
+        const SILENT_MP3 = "data:audio/mp3;base64,//OExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq//OExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
+        let keepAliveAudio = null;
 
-            // Fade out overlay, show main UI
-            tapOverlay.classList.add("fade-out");
-            setTimeout(() => {
-                tapOverlay.classList.add("hidden");
-                mainUI.classList.remove("hidden");
-            }, 400);
+        // ── Start playback (on tap) ────────────────────────────
+        // STEP 1: audio.play() → activates iOS session + immediate sound
+        // STEP 2: Play base64 silence loop → tricks iOS into keeping session permanently active
+        // STEP 3: create AudioContext synchronously in gesture!
+        // STEP 4: loadAndSwitch() → fetch/decode in background
+        // STEP 5: switchToWebAudio() → seamless handoff
+        function startPlayback() {
+            const position = calcCurrentPosition();
 
-            startVisualizer();
-            startDriftConnection();
+            // CRITICAL FOR iOS: Play a real <audio> element in a loop
+            // with a silent base64 MP3 to trick native iOS into keeping
+            // the Web Audio Context fully unlocked and running.
+            if (!keepAliveAudio) {
+                keepAliveAudio = new Audio(SILENT_MP3);
+                keepAliveAudio.loop = true;
+                // keepAliveAudio.muted = true;
+                keepAliveAudio.play().catch(e => console.warn("[Hybrid] Keep-alive failed", e));
+            }
 
-            console.log(`[Mobile] Playing synced at ${fmt(position)}`);
+            // MUST create/resume AudioContext synchronously in the gesture handler!
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === "suspended") {
+                audioCtx.resume();
+            }
+
+            // CRITICAL FOR iOS: Play a silent buffer immediately inside the tap
+            // event to fully unlock the Web Audio API context.
+            try {
+                const emptyBuffer = audioCtx.createBuffer(1, 1, 22050);
+                const unlockSource = audioCtx.createBufferSource();
+                unlockSource.buffer = emptyBuffer;
+                unlockSource.connect(audioCtx.destination);
+                unlockSource.start(0);
+            } catch (e) {
+                console.warn("[Hybrid] Unlock silence failed:", e);
+            }
+
+            audio.play().then(() => {
+                audio.currentTime = position;
+                console.log(`[Hybrid] <audio> playing from ${position.toFixed(2)}s`);
+
+                isPlaying = true;
+                playStartedAt = Date.now();
+
+                tapOverlay.classList.add("fade-out");
+                setTimeout(() => {
+                    tapOverlay.classList.add("hidden");
+                    mainUI.classList.remove("hidden");
+                }, 400);
+
+                startVisualizer();
+                startDriftConnection();
+
+                // Load Web Audio in background and switch when ready
+                loadAndSwitch();
+
+            }).catch(err => {
+                console.error("[Hybrid] Play failed:", err);
+                tapText.textContent = "Toque novamente";
+                tapIcon.textContent = "🔄";
+                tapSub.textContent = "Erro ao iniciar áudio";
+                tapSub.classList.remove("hidden");
+                tapLoading.classList.add("hidden");
+                userTapped = false;
+            });
         }
 
-        // ── TAP overlay handler ────────────────────────────────
+        // ── TAP handler ────────────────────────────────────────
         tapOverlay.addEventListener("click", () => {
+            if (isPlaying) return;
             userTapped = true;
 
             if (syncData) {
-                // Sync data already received — play immediately
-                const position = calcCurrentPosition();
-                audio.currentTime = position;
-                audio.play().then(() => onPlaybackStarted(position)).catch(console.error);
+                startPlayback();
             } else {
-                // Still waiting for sync — show loading
                 tapText.textContent = "Conectando...";
                 tapIcon.textContent = "⏳";
                 tapSub.classList.add("hidden");
@@ -275,27 +373,15 @@
 
         // ── Connect to mobile WS ──────────────────────────────
         function connectSync() {
-            tapLoading.classList.remove("hidden");
-
             const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/mobile/${SCREEN_ID}`);
 
             ws.onmessage = (e) => {
                 const data = JSON.parse(e.data);
                 localReceiveT = Date.now() / 1000;
-                console.log("[Mobile] Sync data:", data);
 
                 if (data.type === "sync") {
                     syncData = data;
-
-                    // Try autoplay immediately
-                    startSyncedAudio();
-
-                    // If user already tapped but data wasn't ready
-                    if (userTapped && !isPlaying) {
-                        const pos = calcCurrentPosition();
-                        audio.currentTime = pos;
-                        audio.play().then(() => onPlaybackStarted(pos)).catch(console.error);
-                    }
+                    if (userTapped && !isPlaying) startPlayback();
                 }
             };
 
@@ -318,14 +404,6 @@
             };
         }
 
-        // ── Audio loop (match video loop) ──────────────────────
-        audio.addEventListener("ended", () => {
-            if (isPlaying && syncData) {
-                audio.currentTime = 0;
-                audio.play();
-            }
-        });
-
         // ── Drift correction ───────────────────────────────────
         function startDriftConnection() {
             if (!syncData || !syncData.drift_enabled) return;
@@ -338,23 +416,25 @@
                 if (data.type === "drift_check" && isPlaying) {
                     driftWs.send(JSON.stringify({
                         type: "position_report",
-                        position: audio.currentTime,
+                        position: getPlaybackPosition(),
                     }));
                 }
 
-                if (data.type === "drift_correction") {
-                    console.log(`[Mobile] Drift correction: ${data.mode} (${data.drift_ms}ms)`);
+                if (data.type === "drift_correction" && isPlaying) {
+                    if (Date.now() - playStartedAt < 5000) return;
 
                     if (data.mode === "HARD") {
-                        audio.currentTime = data.target_time;
-                    } else if (data.mode === "SOFT") {
-                        audio.playbackRate = data.playback_rate;
-                        setTimeout(() => { audio.playbackRate = 1.0; }, 2000);
+                        if (usingWebAudio) {
+                            webAudioPlayFrom(data.target_time);
+                        } else {
+                            audio.currentTime = data.target_time;
+                        }
                     }
+                    // SOFT: ignored — no playbackRate changes
                 }
             };
 
-            driftWs.onclose = () => console.log("[Mobile] Drift WS closed");
+            driftWs.onclose = () => console.log("[Hybrid] Drift WS closed");
         }
 
         // ── Visualizer ─────────────────────────────────────────
@@ -380,3 +460,4 @@
     </script>
 </body>
 </html>
+
