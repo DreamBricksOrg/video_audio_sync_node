@@ -1,0 +1,155 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 1080px;
+    height: 1920px;
+    overflow: hidden;
+    background: #000;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+
+.totem-container {
+    position: relative;
+    width: 1080px;
+    height: 1920px;
+    overflow: hidden;
+}
+
+/* ── Video ──────────────────────────────────────────── */
+#video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1080px;
+    height: 1920px;
+    object-fit: cover;
+}
+
+/* ── QR overlay ─────────────────────────────────────── */
+.qr-overlay {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    z-index: 10;
+    transition: opacity 0.6s ease;
+}
+
+.qr-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.qr-card {
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 28px;
+    padding: 36px 44px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.5),
+        0 0 80px rgba(99, 102, 241, 0.08);
+}
+
+.qr-wrapper {
+    background: #fff;
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qr-wrapper canvas {
+    border-radius: 8px;
+}
+
+.qr-label {
+    color: #fff;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-align: center;
+    line-height: 1.4;
+}
+
+.qr-label .icon {
+    font-size: 28px;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+.qr-sublabel {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 0.3px;
+}
+
+/* ── Status indicator ──────────────────────────────── */
+.status-bar {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(12px);
+    border-radius: 20px;
+    padding: 8px 16px;
+    z-index: 10;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #22c55e;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.status-dot.error {
+    background: #ef4444;
+    animation: none;
+}
+
+.status-text {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+/* ── Scan animation ────────────────────────────────── */
+.scan-ring {
+    position: absolute;
+    width: 260px;
+    height: 260px;
+    border: 2px solid rgba(99, 102, 241, 0.3);
+    border-radius: 24px;
+    animation: scan-pulse 3s ease-in-out infinite;
+    pointer-events: none;
+}
+
+@keyframes scan-pulse {
+    0%, 100% { transform: scale(1); opacity: 0; }
+    50% { transform: scale(1.12); opacity: 1; }
+}

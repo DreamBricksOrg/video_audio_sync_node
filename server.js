@@ -27,7 +27,7 @@ const path = require("path");
 const url = require("url");
 
 // ── Config ──────────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 8001;
 const DRIFT_THRESHOLD_MS = 80;
 const DRIFT_INTERVAL_MS = 2000;
 const MAX_MOBILE_PER_SCREEN = 50;
