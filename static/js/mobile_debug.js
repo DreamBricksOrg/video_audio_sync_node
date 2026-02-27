@@ -3,7 +3,7 @@ const params    = new URLSearchParams(location.search);
 const SCREEN_ID = params.get("screen") || "totem1";
 const WS_HOST   = location.host;
 const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
-const AUDIO_URL = "/media/99_audio.mp3";
+const AUDIO_URL = "/media/ivete_audio.mp3";
 
 document.getElementById("screenBadge").textContent = SCREEN_ID.toUpperCase();
 
@@ -198,7 +198,8 @@ function startPlayback() {
     }).catch(err => {
         addHistory("HARD", `Play failed: ${err.message}`);
         tapText.textContent = "Toque novamente";
-        tapIcon.textContent = "🔄";
+        tapIcon.innerHTML = '<i data-lucide="refresh-cw"></i>';
+        lucide.createIcons();
         tapSub.textContent = "Erro ao iniciar áudio";
         tapSub.classList.remove("hidden");
         tapLoading.classList.add("hidden");
@@ -215,7 +216,8 @@ tapOverlay.addEventListener("click", () => {
         startPlayback();
     } else {
         tapText.textContent = "Conectando...";
-        tapIcon.textContent = "⏳";
+        tapIcon.innerHTML = '<i data-lucide="loader"></i>';
+        lucide.createIcons();
         tapSub.classList.add("hidden");
         tapLoading.classList.remove("hidden");
     }
@@ -241,7 +243,8 @@ function connectSync() {
 
     ws.onerror = () => {
         tapText.textContent = "Erro de conexão";
-        tapIcon.textContent = "❌";
+        tapIcon.innerHTML = '<i data-lucide="x-circle"></i>';
+        lucide.createIcons();
         tapSub.textContent = "Toque para tentar novamente";
         tapSub.classList.remove("hidden");
         tapLoading.classList.add("hidden");
@@ -250,7 +253,8 @@ function connectSync() {
     ws.onclose = (e) => {
         if (e.code === 4004) {
             tapText.textContent = "Totem não encontrado";
-            tapIcon.textContent = "📡";
+            tapIcon.innerHTML = '<i data-lucide="radio"></i>';
+            lucide.createIcons();
             tapSub.textContent = "Tentando novamente...";
             tapSub.classList.remove("hidden");
             setTimeout(connectSync, 3000);
@@ -359,3 +363,23 @@ document.addEventListener("visibilitychange", () => {
         connectSync();
     }
 });
+
+// ── App Download Button Logic ──────────────────────────
+const btnDownloadApp = document.getElementById("btnDownloadApp");
+if (btnDownloadApp) {
+    btnDownloadApp.addEventListener("click", (e) => {
+        e.preventDefault();
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+        
+        if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
+            // iOS: App Store link
+            window.location.href = "https://apps.apple.com/br/app/99-motorista-e-passageiro/id526117622";
+        } else if (/android/i.test(userAgent)) {
+            // Android: Play Store link
+            window.location.href = "https://play.google.com/store/apps/details?id=com.taxis99";
+        } else {
+            // Fallback for Desktop/Other
+            window.location.href = "https://99app.com/99food/";
+        }
+    });
+}

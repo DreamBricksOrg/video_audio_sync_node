@@ -3,13 +3,16 @@
 html, body {
     width: 100%; height: 100%; overflow: hidden;
     font-family: 'Inter', system-ui, sans-serif;
-    background: #0a0a0f; color: #fff;
+    background: #000 url('/static/images/background.png') no-repeat center center fixed;
+    background-size: cover;
+    color: #fff;
 }
 
 /* ── Tap-to-start overlay (autoplay fallback) ───────── */
 .tap-overlay {
     position: fixed; inset: 0; z-index: 100;
-    background: radial-gradient(ellipse at center, #1a1a2e 0%, #0a0a0f 100%);
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 28px; cursor: pointer;
@@ -24,23 +27,22 @@ html, body {
 .tap-icon {
     width: 120px; height: 120px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    background: #FFC107;
+    color: #000;
     display: flex; align-items: center; justify-content: center;
     font-size: 48px;
-    box-shadow: 0 0 60px rgba(99, 102, 241, 0.4);
+    box-shadow: 0 0 40px rgba(255, 193, 7, 0.4);
     animation: icon-pulse 2s ease-in-out infinite;
 }
 
 @keyframes icon-pulse {
-    0%, 100% { transform: scale(1); box-shadow: 0 0 60px rgba(99, 102, 241, 0.4); }
-    50% { transform: scale(1.08); box-shadow: 0 0 80px rgba(99, 102, 241, 0.6); }
+    0%, 100% { transform: scale(1); box-shadow: 0 0 40px rgba(255, 193, 7, 0.4); }
+    50% { transform: scale(1.08); box-shadow: 0 0 70px rgba(255, 193, 7, 0.6); }
 }
 
 .tap-text {
     font-size: 22px; font-weight: 700;
-    background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #FFC107;
 }
 
 .tap-sub {
@@ -64,9 +66,13 @@ html, body {
 
 .header h1 {
     font-size: 24px; font-weight: 700;
-    background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #FFC107;
+    text-shadow: 
+        -1px -1px 0 #000,  
+         1px -1px 0 #000,
+        -1px  1px 0 #000,
+         1px  1px 0 #000,
+         0 4px 12px rgba(0,0,0,0.8);
 }
 
 /* ── Visualizer ─────────────────────────────────────── */
@@ -77,8 +83,10 @@ html, body {
 
 .bar {
     width: 6px;
-    background: linear-gradient(to top, #818cf8, #c084fc);
-    border-radius: 3px; transition: height 0.15s ease;
+    background: #FFC107;
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px #000, 0 2px 8px rgba(0,0,0,0.8);
+    transition: height 0.15s ease;
 }
 
 .visualizer.idle .bar {
@@ -128,3 +136,55 @@ html, body {
 }
 
 .hidden { display: none !important; }
+
+/* ── Promo / Social Box ─────────────────────────────── */
+.promo-box {
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid #FFC107;
+    border-radius: 16px;
+    padding: 24px;
+    text-align: center;
+    margin-top: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.promo-text {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: #fff;
+    line-height: 1.4;
+}
+
+.social-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 24px;
+    font-weight: 700;
+    font-size: 14px;
+    text-decoration: none;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.btn:active { transform: scale(0.95); }
+
+.btn-yellow {
+    background: #FFC107;
+    color: #000;
+}
+
+.btn-dark {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}

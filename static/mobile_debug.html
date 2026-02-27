@@ -7,12 +7,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/mobile_debug.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
     <!-- ── TAP OVERLAY ──────────────────────────────────────── -->
     <div class="tap-overlay" id="tapOverlay">
-        <div class="tap-icon" id="tapIcon">🔧</div>
+        <div class="tap-icon" id="tapIcon"><i data-lucide="wrench"></i></div>
         <div class="tap-text" id="tapText">Debug Mode</div>
         <div class="tap-sub" id="tapSub">Toque para iniciar com diagnóstico</div>
         <div class="tap-loading hidden" id="tapLoading">⏳ Conectando ao totem...</div>
@@ -22,7 +23,9 @@
     <div class="debug-container hidden" id="mainUI">
 
         <div class="debug-header">
-            <h1>🔧 Debug Mode</h1>
+            <h1 style="display: flex; align-items: center; gap: 8px;">
+                <i data-lucide="wrench" style="width: 18px; height: 18px;"></i> Debug Mode
+            </h1>
             <span class="debug-badge" id="screenBadge">TOTEM1</span>
         </div>
 
@@ -33,9 +36,21 @@
             <div class="bar"></div><div class="bar"></div><div class="bar"></div>
         </div>
 
+        <div class="promo-box">
+            <div class="promo-text">Enquanto escuta a propaganda, aproveite para saber mais sobre a 99food</div>
+            <div class="social-buttons">
+                <a href="#" id="btnDownloadApp" class="btn btn-yellow"><i data-lucide="smartphone"></i> Baixar App</a>
+                <a href="https://99app.com/99food/" target="_blank" class="btn btn-dark"><i data-lucide="utensils"></i> Site</a>
+                <a href="https://instagram.com/99brasil" target="_blank" class="btn btn-dark"><i data-lucide="instagram"></i> Inst</a>
+                <a href="https://x.com/voude99" target="_blank" class="btn btn-dark"><i data-lucide="twitter"></i> X</a>
+            </div>
+        </div>
+
         <!-- ── Playback ──────────────────────────────────────── -->
         <div class="debug-section">
-            <div class="section-title">▶️ Playback</div>
+            <div class="section-title" style="display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="play-circle" style="width: 14px; height: 14px;"></i> Playback
+            </div>
             <div class="metric-row">
                 <span class="metric-label">Posição Real</span>
                 <span class="metric-value info" id="dbgRealPos">0.00s</span>
@@ -60,7 +75,9 @@
 
         <!-- ── Sync ──────────────────────────────────────────── -->
         <div class="debug-section">
-            <div class="section-title">🔗 Sincronização</div>
+            <div class="section-title" style="display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="link" style="width: 14px; height: 14px;"></i> Sincronização
+            </div>
             <div class="metric-row">
                 <span class="metric-label">Server Offset</span>
                 <span class="metric-value info" id="dbgServerOffset">--</span>
@@ -77,7 +94,9 @@
 
         <!-- ── Drift ─────────────────────────────────────────── -->
         <div class="debug-section">
-            <div class="section-title">📐 Drift</div>
+            <div class="section-title" style="display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="ruler" style="width: 14px; height: 14px;"></i> Drift
+            </div>
             <div class="metric-row">
                 <span class="metric-label">Drift Atual</span>
                 <span class="metric-value good" id="dbgDrift">—</span>
@@ -113,6 +132,9 @@
     <audio id="audioPlayer" preload="auto" playsinline></audio>
 
     <script src="/static/js/mobile_debug.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
 </body>
 </html>
 
