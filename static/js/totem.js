@@ -1,5 +1,6 @@
 // ── Config ─────────────────────────────────────────────
-const SCREEN_ID = "totem1";
+const urlParams = new URLSearchParams(window.location.search);
+const SCREEN_ID = urlParams.get('screen') || "totem1";
 const API_KEY   = "your-secret-api-key-here";
 const WS_HOST   = location.host;
 const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
@@ -77,6 +78,17 @@ function registerSession() {
             const data = JSON.parse(e.data);
             if (data.type === "mobile_connected") {
                 hideQrForLoops(2);
+            } else if (data.type === "change_video") {
+                // Prevent infinite loop by checking if we are already playing this video
+                if (!video.src.includes(data.filename)) {
+                    console.log(`[Totem] Changing video to: ${data.filename}`);
+                    const wasPlaying = !video.paused;
+                    video.src = `/media/${data.filename}`;
+                    video.load();
+                    if (wasPlaying) {
+                        video.play().catch(console.error);
+                    }
+                }
             }
         } catch (_) {}
     };
@@ -97,9 +109,15 @@ function registerSession() {
 // ── Boot ───────────────────────────────────────────────
 video.addEventListener("loadedmetadata", () => {
     console.log(`[Totem] Video ready — ${video.duration}s`);
-    registerSession();
+    if (screenWs && screenWs.readyState === 1) {
+        screenWs.send(JSON.stringify({
+            current_time: video.currentTime,
+            duration: video.duration || 30,
+            mode: "sync",
+            drift_enabled: true,
+        }));
+    }
 });
 
-setTimeout(() => {
-    if (!registered) registerSession();
-}, 5000);
+// Initially register to catch configuration
+registerSession();

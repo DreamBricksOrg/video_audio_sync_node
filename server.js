@@ -25,6 +25,9 @@ const { WebSocketServer } = require("ws");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
+const bodyParser = require("body-parser");
+const swaggerUi = require("swagger-ui-express");
+const YAML = require("yamljs");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8001;
@@ -42,7 +45,8 @@ const MIME_TYPES = {
   ".wav": "audio/wav",
 };
 
-// ── In-memory stores ────────────────────────────────────────────────────────
+// ── In-memory stores & Config ───────────────────────────────────────────────
+const TOTEMS_FILE = path.join(__dirname, "totems.json");
 const sessions = {};
 const screenClients = {};   // { screenId: ws } — one totem per screen
 const mobileClients = {};   // { screenId: Set<ws> }
@@ -67,7 +71,114 @@ const server = http.createServer(app);
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
   next();
+});
+
+// JSON parsing
+app.use(bodyParser.json());
+
+// ── Totems configuration sync ───────────────────────────────────────────────
+function loadTotemsConf() {
+  if (fs.existsSync(TOTEMS_FILE)) {
+    try {
+      const data = fs.readFileSync(TOTEMS_FILE, 'utf-8');
+      return JSON.parse(data);
+    } catch (e) {
+      console.error("Failed to parse totems.json", e);
+    }
+  }
+  return {};
+}
+
+function saveTotemsConf(conf) {
+  try {
+    fs.writeFileSync(TOTEMS_FILE, JSON.stringify(conf, null, 2), "utf-8");
+  } catch (e) {
+    console.error("Failed to write to totems.json", e);
+  }
+}
+
+// Map from totem Id => configuration { video: "video.mp4" }
+let totemsConf = loadTotemsConf();
+
+// ── Swagger UI ──────────────────────────────────────────────────────────────
+const swaggerDocument = YAML.load(path.join(__dirname, 'openapi.yaml'));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+// ── API ─────────────────────────────────────────────────────────────────────
+
+// Get all media assets (videos)
+app.get("/api/videos", (req, res) => {
+  if (!fs.existsSync(ASSETS_DIR)) return res.json([]);
+  
+  const files = fs.readdirSync(ASSETS_DIR)
+    .filter(f => !f.startsWith("."))
+    .filter(f => [".mp4", ".webm"].includes(path.extname(f).toLowerCase()));
+  
+  res.json(files);
+});
+
+// Get all media assets (audios)
+app.get("/api/audios", (req, res) => {
+  if (!fs.existsSync(ASSETS_DIR)) return res.json([]);
+  
+  const files = fs.readdirSync(ASSETS_DIR)
+    .filter(f => !f.startsWith("."))
+    .filter(f => [".mp3", ".wav", ".ogg"].includes(path.extname(f).toLowerCase()));
+  
+  res.json(files);
+});
+
+// Get totems list & states
+app.get("/api/totems", (req, res) => {
+  // Merge live status with configuration
+  const result = [];
+  
+  // Create a combined list of all known totem IDs
+  const allIds = new Set([
+      ...Object.keys(totemsConf),
+      ...Object.keys(screenClients)
+  ]);
+  
+  allIds.forEach(id => {
+      const isOnline = !!screenClients[id];
+      const mobileCount = mobileClients[id] ? mobileClients[id].size : 0;
+      
+      result.push({
+          id,
+          is_online: isOnline,
+          mobile_count: mobileCount,
+          video: totemsConf[id] ? totemsConf[id].video : null,
+          audio: totemsConf[id] ? totemsConf[id].audio : null
+      });
+  });
+  
+  res.json(result);
+});
+
+// Update specific totem's config
+app.post("/api/totem/:id/config", (req, res) => {
+  const { id } = req.params;
+  const { video, audio } = req.body;
+  
+  if (!video || !audio) return res.status(400).json({ error: "No video or audio specified" });
+  
+  // Persist
+  if (!totemsConf[id]) totemsConf[id] = {};
+  totemsConf[id].video = video;
+  totemsConf[id].audio = audio;
+  saveTotemsConf(totemsConf);
+  
+  console.log(`[Admin] Assigned video ${video} and audio ${audio} to totem ${id}`);
+  
+  // Broadcast video change immediately if totem is online
+  const ws = screenClients[id];
+  if (ws && ws.readyState === 1) {
+    safeSend(ws, { type: "change_video", filename: video });
+  }
+  
+  res.json({ success: true, id, video, audio });
 });
 
 // ── Health check ────────────────────────────────────────────────────────────
@@ -224,6 +335,12 @@ function handleScreen(ws, screenId) {
 
       console.log(`[Screen] Session: ${screenId} — ${sessions[screenId].duration}s (pos: ${currentTime.toFixed(2)}s)`);
       safeSend(ws, { type: "session_created", screen_id: screenId });
+      
+      // On fresh connection, tell totem what video to play
+      if (totemsConf[screenId] && totemsConf[screenId].video) {
+        safeSend(ws, { type: "change_video", filename: totemsConf[screenId].video });
+      }
+
       // WS stays open to receive notifications (e.g. mobile_connected)
     } catch (err) {
       safeSend(ws, { type: "error", detail: err.message });
@@ -268,12 +385,17 @@ function handleMobile(ws, screenId) {
   }
 
   // Send sync payload — NEVER send current_position
+  const totemAudio = totemsConf[screenId] && totemsConf[screenId].audio 
+    ? `/media/${totemsConf[screenId].audio}` 
+    : "/media/ivete_audio.mp3"; // Fallback just in case
+
   safeSend(ws, {
     type: "sync",
     start_time: session.start_time,
     duration: session.duration,
     server_time: Date.now() / 1000,
     drift_enabled: session.drift_enabled,
+    audio: totemAudio
   });
 
   // Notify the totem that a mobile connected
@@ -396,5 +518,6 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`  📺 Totem:  http://dbaudiosync.ngrok.app/static/totem.html`);
   console.log(`  📱 Mobile: http://dbaudiosync.ngrok.app/static/mobile.html?screen=totem1`);
   console.log(`  📱 Mobile: http://dbaudiosync.ngrok.app/static/mobile_debug.html?screen=totem1`);
-  console.log(`  ❤️  Health: http://dbaudiosync.ngrok.app/health\n`);
+  console.log(`  ❤️  Health: http://dbaudiosync.ngrok.app/health`);
+  console.log(`  📖 Docs:   http://0.0.0.0:${PORT}/api-docs\n`);
 });

@@ -3,7 +3,6 @@ const params    = new URLSearchParams(location.search);
 const SCREEN_ID = params.get("screen") || "totem1";
 const WS_HOST   = location.host;
 const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
-const AUDIO_URL = "/media/ivete_audio.mp3";
 
 document.getElementById("screenBadge").textContent = SCREEN_ID.toUpperCase();
 
@@ -33,8 +32,7 @@ let startCtxTime   = 0;
 let startOffset    = 0;
 let usingWebAudio  = false;
 
-// Set audio source
-audio.src = AUDIO_URL;
+// audio.src is set dynamically when syncData arrives
 audio.loop = true;
 
 // ── Debug counters ─────────────────────────────────────
@@ -116,9 +114,11 @@ function switchToWebAudio() {
 // ── Background: fetch + decode + switch ────────────────
 async function loadAndSwitch() {
     try {
+        if (!syncData || !syncData.audio) return;
+
         // AudioContext created synchronously in startPlayback()
         addHistory("OK", "Fetching audio buffer...");
-        const response = await fetch(AUDIO_URL);
+        const response = await fetch(syncData.audio);
         const arrayBuf = await response.arrayBuffer();
         const sizeMB = (arrayBuf.byteLength / 1024 / 1024).toFixed(1);
 
@@ -158,8 +158,6 @@ function startPlayback() {
     }
     addHistory("OK", `AudioContext: ${audioCtx.state}`);
 
-    // CRITICAL FOR iOS: Play a silent buffer immediately inside the tap
-    // event to fully unlock the Web Audio API context.
     try {
         const emptyBuffer = audioCtx.createBuffer(1, 1, 22050);
         const unlockSource = audioCtx.createBufferSource();
@@ -168,6 +166,14 @@ function startPlayback() {
         unlockSource.start(0);
     } catch (e) {
         addHistory("HARD", "Unlock silence failed");
+    }
+
+    // Set audio track dynamically
+    if (syncData && syncData.audio) {
+        if (audio.src !== window.location.origin + syncData.audio) {
+            audio.src = syncData.audio;
+            audio.load();
+        }
     }
 
     audio.play().then(() => {

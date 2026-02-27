@@ -3,7 +3,6 @@ const params    = new URLSearchParams(location.search);
 const SCREEN_ID = params.get("screen") || "totem1";
 const WS_HOST   = location.host;
 const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
-const AUDIO_URL = "/media/ivete_audio.mp3";
 
 // ── Elements ───────────────────────────────────────────
 const tapOverlay = document.getElementById("tapOverlay");
@@ -31,8 +30,7 @@ let startCtxTime   = 0;
 let startOffset    = 0;
 let usingWebAudio  = false;
 
-// Set audio source for <audio> element
-audio.src = AUDIO_URL;
+// audio.src is set dynamically when syncData arrives
 audio.loop = true;
 
 // ── Helpers ────────────────────────────────────────────
@@ -96,8 +94,10 @@ function switchToWebAudio() {
 // ── Background: fetch + decode + switch ────────────────
 async function loadAndSwitch() {
     try {
+        if (!syncData || !syncData.audio) return;
+        
         // AudioContext is now created synchronously in startPlayback()
-        const response = await fetch(AUDIO_URL);
+        const response = await fetch(syncData.audio);
         const arrayBuf = await response.arrayBuffer();
         audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
 
@@ -149,6 +149,14 @@ function startPlayback() {
         unlockSource.start(0);
     } catch (e) {
         console.warn("[Hybrid] Unlock silence failed:", e);
+    }
+    
+    // Set audio track dynamically
+    if (syncData && syncData.audio) {
+        if (audio.src !== window.location.origin + syncData.audio) {
+            audio.src = syncData.audio;
+            audio.load();
+        }
     }
 
     audio.play().then(() => {
