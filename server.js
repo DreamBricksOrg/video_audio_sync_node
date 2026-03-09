@@ -515,7 +515,7 @@ function computeCorrection(clientPosition, startTime, duration) {
 // ── Start server ────────────────────────────────────────────────────────────
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n  🎬 OOH Audio Sync running on http://0.0.0.0:${PORT}`);
-  console.log(`  📺 Totem:  http://dbaudiosync.ngrok.app/static/totem.html`);
+  console.log(`  📺 Totem:  http://dbaudiosync.ngrok.app/static/totem.html?screen=totem1`);
   console.log(`  📱 Mobile: http://dbaudiosync.ngrok.app/static/mobile.html?screen=totem1`);
   console.log(`  📱 Mobile: http://dbaudiosync.ngrok.app/static/mobile_debug.html?screen=totem1`);
   console.log(`  ❤️  Health: http://dbaudiosync.ngrok.app/health`);

@@ -26,3 +26,6 @@ media/*.wav
 # Agent config
 .agent/
 .gemini/
+
+# Docs
+MELHORIAS.md
