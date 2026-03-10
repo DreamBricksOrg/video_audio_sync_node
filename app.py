@@ -7,7 +7,6 @@ Audio sync page served via FastAPI WebSockets.
 
 import os
 import time
-import glob
 import socket
 import asyncio
 import mimetypes
@@ -15,7 +14,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, StreamingResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from vlc_player import VLCPlayer
@@ -27,14 +26,14 @@ STATIC_PY_DIR = Path(__file__).parent / "static_py"
 DRIFT_THRESHOLD_MS = 80
 DRIFT_INTERVAL_S = 2.0
 
-# ── Hardcoded video file name (from assets/ folder) ─────────────────────────
-VIDEO_FILE = "99_video.mp4"
-AUDIO_FILE = "99_audio.mp3"
+# ── Hardcoded media files (from assets/ folder) ─────────────────────────────
+VIDEO_FILE = "ivete_video2.mp4"
+AUDIO_FILE = "ivete_audio.mp3"
 
 # ── Global state ────────────────────────────────────────────────────────────
 player = VLCPlayer()
 connected_clients: set[WebSocket] = set()
-start_time: float = 0.0  # server timestamp when VLC position was 0
+start_time: float = 0.0
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -47,36 +46,6 @@ def get_local_ip() -> str:
         return ip
     except Exception:
         return "127.0.0.1"
-
-
-def find_first_video() -> str | None:
-    for ext in ("*.mp4", "*.webm"):
-        files = sorted(glob.glob(str(ASSETS_DIR / ext)))
-        if files:
-            return files[0]
-    return None
-
-
-def find_audio_for_video(video_name: str) -> str | None:
-    stem = Path(video_name).stem
-    # Convention: video is "xxx_video.mp4" → audio is "xxx_audio.mp3"
-    if stem.endswith("_video"):
-        base = stem[: -len("_video")]
-        for ext in (".mp3", ".wav", ".ogg"):
-            candidate = ASSETS_DIR / f"{base}_audio{ext}"
-            if candidate.exists():
-                return candidate.name
-    # Fallback: look for any audio with same base
-    for ext in (".mp3", ".wav", ".ogg"):
-        candidate = ASSETS_DIR / f"{stem}{ext}"
-        if candidate.exists():
-            return candidate.name
-    # Last fallback: first audio file in assets
-    for ext in ("*.mp3", "*.wav", "*.ogg"):
-        files = sorted(glob.glob(str(ASSETS_DIR / ext)))
-        if files:
-            return Path(files[0]).name
-    return None
 
 
 def recalc_start_time():

@@ -1,31 +1,20 @@
-# Dependencies
-node_modules/
-
-# Environment
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
 .env
-.env.*
+venv/
+.venv/
 
-# OS
-Thumbs.db
-Desktop.ini
-.DS_Store
+# Assets (media files)
+assets/*.mp4
+assets/*.webm
+assets/*.mp3
+assets/*.wav
+assets/*.ogg
 
 # IDE
 .vscode/
 .idea/
-
-# Logs
-*.log
-npm-debug.log*
-
-# Media files (large)
-media/*.mp4
-media/*.mp3
-media/*.wav
-
-# Agent config
-.agent/
-.gemini/
-
-# Docs
-MELHORIAS.md

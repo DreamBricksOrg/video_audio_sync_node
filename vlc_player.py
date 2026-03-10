@@ -3,23 +3,54 @@ VLC Video Player Controller
 
 Thread-safe wrapper around python-vlc for looping video playback.
 Uses EndReached event for seamless looping (no input-repeat gap).
-Exposes position/duration so the FastAPI server can sync audio clients.
+Auto-detects platform (Windows/Raspberry Pi) for optimal VLC settings.
 """
 
 import vlc
+import sys
 import time
+import platform
 import threading
 from pathlib import Path
 
 
+def _build_vlc_args() -> list[str]:
+    """Build VLC instance arguments based on platform."""
+    args = ["--fullscreen", "--no-video-title-show"]
+
+    is_linux = sys.platform.startswith("linux")
+    is_arm = platform.machine().startswith("arm") or platform.machine().startswith("aarch64")
+
+    if is_linux:
+        args.append("--no-xlib")
+
+        if is_arm:
+            # Raspberry Pi 4 optimizations
+            args.extend([
+                "--codec", "avcodec",           # use avcodec with V4L2 M2M HW accel
+                "--avcodec-hw", "any",           # enable any available HW decoding
+                "--no-overlay",                  # avoid overlay (reduces GPU load)
+                "--no-osd",                      # no on-screen display
+                "--file-caching=300",            # lower cache for less memory use
+                "--network-caching=300",
+                "--no-interact",                 # no user interaction prompts
+                "--quiet",                       # reduce log verbosity
+            ])
+            print("  🍓 Raspberry Pi detected — using optimized VLC settings")
+
+    return args
+
+
 class VLCPlayer:
     def __init__(self):
-        self._instance = vlc.Instance("--no-xlib", "--fullscreen")
+        vlc_args = _build_vlc_args()
+        self._instance = vlc.Instance(*vlc_args)
         self._player: vlc.MediaPlayer = self._instance.media_player_new()
         self._lock = threading.Lock()
         self._duration: float = 0.0
         self._video_path: str = ""
         self._running = False
+        self._fullscreen = False
         self._last_valid_pos: float = 0.0
 
         # Register end-reached event for seamless looping
@@ -28,7 +59,6 @@ class VLCPlayer:
 
     def _on_end_reached(self, event):
         """Restart video from 0 when it ends (seamless loop without input-repeat gap)."""
-        # Can't call player methods directly from VLC event callback — use a thread
         threading.Timer(0.05, self._restart_playback).start()
 
     def _restart_playback(self):
@@ -40,9 +70,10 @@ class VLCPlayer:
             self._player.set_media(media)
             self._player.play()
             self._last_valid_pos = 0.0
-        # Re-apply fullscreen after restart
-        time.sleep(0.3)
-        self._player.set_fullscreen(True)
+
+        if self._fullscreen:
+            time.sleep(0.3)
+            self._player.set_fullscreen(True)
 
     def play(self, video_path: str, fullscreen: bool = False):
         path = Path(video_path).resolve()
@@ -50,10 +81,10 @@ class VLCPlayer:
             raise FileNotFoundError(f"Video not found: {path}")
 
         media = self._instance.media_new(str(path))
-        # No input-repeat — we handle looping via EndReached event
 
         with self._lock:
             self._video_path = str(path)
+            self._fullscreen = fullscreen
             self._player.set_media(media)
             self._player.play()
             self._running = True
@@ -69,7 +100,6 @@ class VLCPlayer:
 
         if fullscreen:
             self._player.set_fullscreen(True)
-            # Fallback: re-apply after window is fully created
             time.sleep(0.5)
             self._player.set_fullscreen(True)
 
@@ -79,7 +109,6 @@ class VLCPlayer:
             if t >= 0:
                 self._last_valid_pos = t / 1000.0
                 return self._last_valid_pos
-            # During loop transition, return last known position
             return self._last_valid_pos
 
     def get_duration(self) -> float:
