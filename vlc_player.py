@@ -27,16 +27,27 @@ def _build_vlc_args() -> list[str]:
         if is_arm:
             # Raspberry Pi 4 optimizations
             args.extend([
-                "--codec", "avcodec",           # use avcodec with V4L2 M2M HW accel
-                "--avcodec-hw", "any",           # enable any available HW decoding
-                "--no-overlay",                  # avoid overlay (reduces GPU load)
-                "--no-osd",                      # no on-screen display
-                "--file-caching=300",            # lower cache for less memory use
+                # ── HW decoding ──
+                "--codec", "avcodec",
+                "--avcodec-hw", "any",              # V4L2 M2M / MMAL HW accel
+                "--avcodec-fast",                    # speed-optimized decoding
+                "--avcodec-skiploopfilter", "4",      # skip deblocking filter (big CPU save)
+                "--avcodec-threads", "2",             # use 2 decode threads
+
+                # ── Disable audio (plays on phones, not here) ──
+                "--no-audio",
+
+                # ── Reduce overhead ──
+                "--no-overlay",
+                "--no-osd",
+                "--no-snapshot-preview",
+                "--no-video-title-show",
+                "--file-caching=300",
                 "--network-caching=300",
-                "--no-interact",                 # no user interaction prompts
-                "--quiet",                       # reduce log verbosity
+                "--no-interact",
+                "--quiet",
             ])
-            print("  🍓 Raspberry Pi detected — using optimized VLC settings")
+            print("  🍓 Raspberry Pi detected — optimized VLC (no-audio, HW decode, skip-loopfilter)")
 
     return args
 
