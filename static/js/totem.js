@@ -1,6 +1,8 @@
 // ── Config ─────────────────────────────────────────────
 const urlParams = new URLSearchParams(window.location.search);
 const SCREEN_ID = urlParams.get('screen') || "totem1";
+// ?showqr=false|0|no|off hides the QR overlay (default: shown)
+const SHOW_QR   = !["false", "0", "no", "off"].includes((urlParams.get('showqr') || "").toLowerCase());
 const API_KEY   = "your-secret-api-key-here";
 const WS_HOST   = location.host;
 const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
@@ -15,14 +17,19 @@ let registered = false;
 let loopsToHide = 0;
 
 // ── Generate QR ────────────────────────────────────────
-new QRCode(document.getElementById("qrWrapper"), {
-    text: MOBILE_URL, width: 200, height: 200,
-    colorDark: "#000000", colorLight: "#ffffff",
-    correctLevel: QRCode.CorrectLevel.H,
-});
+if (SHOW_QR) {
+    new QRCode(document.getElementById("qrWrapper"), {
+        text: MOBILE_URL, width: 200, height: 200,
+        colorDark: "#000000", colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.H,
+    });
+} else {
+    qrOverlay.remove();
+}
 
 // ── QR hide/show (hides for N video loops) ─────────────
 function hideQrForLoops(count) {
+    if (!SHOW_QR) return;
     loopsToHide = count;
     qrOverlay.classList.add("hidden");
     console.log(`[Totem] QR hidden for ${count} loops`);
