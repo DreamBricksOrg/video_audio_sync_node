@@ -1,3 +1,7 @@
+/* Totem page — fills whatever space it gets (full screen on the totem, or
+   any iframe size). Sizes of the QR card scale with the smaller side of the
+   viewport (vmin), calibrated so a 1080×1920 screen matches the old layout. */
+
 * {
     margin: 0;
     padding: 0;
@@ -5,8 +9,8 @@
 }
 
 html, body {
-    width: 1080px;
-    height: 1920px;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
     background: #000;
     font-family: var(--font-body);
@@ -14,36 +18,46 @@ html, body {
 
 .totem-container {
     position: relative;
-    width: 1080px;
-    height: 1920px;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
+
+    /* 1080px wide → 1vmin = 10.8px */
+    --qr-size: clamp(72px, 18.5vmin, 240px);
+    --qr-pad: clamp(8px, 2.2vmin, 28px);
+    --qr-gap: clamp(6px, 1.5vmin, 18px);
+    --qr-font: clamp(11px, 1.95vmin, 24px);
+    --qr-bottom: clamp(8px, 5.5vmin, 72px);
+    --qr-corner: clamp(16px, 6.7vmin, 80px);
 }
 
 /* ── Video ──────────────────────────────────────────── */
 #video {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 1080px;
-    height: 1920px;
-    object-fit: cover;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;          /* fill the frame, cropping edges if needed */
 }
+
+/* ?fit=contain → show the whole video, with bars when the aspect differs */
+.fit-contain #video { object-fit: contain; }
 
 /* ── QR overlay — DreamBricks card ──────────────────── */
 .qr-overlay {
     position: absolute;
-    bottom: 60px;
+    bottom: var(--qr-bottom);
     left: 50%;
     transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--space-4);
-    padding: var(--space-6) var(--space-6) var(--space-5);
+    gap: var(--qr-gap);
+    padding: var(--qr-pad);
     background: var(--surface-card);
     color: var(--db-blue-900);
     /* brand "capsule" plate: one fully rounded corner */
-    border-radius: var(--radius-xl) 72px var(--radius-xl) var(--radius-xl);
+    border-radius: calc(var(--qr-corner) / 3) var(--qr-corner) calc(var(--qr-corner) / 3) calc(var(--qr-corner) / 3);
     box-shadow: var(--shadow-lg);
     z-index: 10;
     transition: opacity var(--duration-slow) var(--ease-standard);
@@ -60,30 +74,44 @@ html, body {
     justify-content: center;
 }
 
+/* qrcodejs renders a canvas and an img; size both from the CSS variable */
 .qr-wrapper canvas,
 .qr-wrapper img {
     display: block;
+    width: var(--qr-size) !important;
+    height: var(--qr-size) !important;
     border-radius: var(--radius-sm);
 }
 
 .qr-label {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
-    font-size: var(--text-lg);
+    gap: calc(var(--qr-gap) / 2);
+    max-width: calc(var(--qr-size) * 1.6);
+    font-size: var(--qr-font);
     font-weight: var(--weight-semibold);
     line-height: var(--leading-snug);
     text-align: center;
 }
 
 .qr-label .icon {
-    width: 28px;
-    height: 28px;
+    width: 1.3em;
+    height: 1.3em;
     flex-shrink: 0;
     color: var(--db-blue-500);
 }
 
 .qr-logo {
-    height: 36px;
+    height: calc(var(--qr-font) * 1.7);
     display: block;
+}
+
+/* Wide, short frames (e.g. 16:9 banners): QR to the bottom-right corner so it
+   covers less of the video */
+@media (min-aspect-ratio: 4/3) {
+    .qr-overlay {
+        left: auto;
+        right: var(--qr-bottom);
+        transform: none;
+    }
 }
