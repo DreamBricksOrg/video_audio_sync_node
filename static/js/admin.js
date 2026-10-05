@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderTotems(totems) {
         totemGrid.innerHTML = '';
         if (totems.length === 0) {
-            totemGrid.innerHTML = '<div style="color: #aaa; margin-top:20px; font-weight:500;">No totems registered yet. Click "Add Totem" to begin.</div>';
+            totemGrid.innerHTML = '<div class="empty-state">No totems registered yet. Click "Add Totem" to begin.</div>';
             return;
         }
 
@@ -78,7 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="card-header">
                     <div class="totem-id">${totem.id}</div>
                     <div class="status-pill ${statusClass}">
-                        <div style="width:6px; height:6px; background:currentColor; border-radius:50%;"></div>
+                        <span class="dot"></span>
                         ${statusLabel}
                     </div>
                 </div>
@@ -88,16 +88,16 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="metric-value">${totem.mobile_count}</span>
                     </div>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label>Current Video</label>
+                <div class="card-fields">
+                    <div class="form-group">
+                        <label for="select-video-${totem.id}">Current Video</label>
                         <select class="custom-select" id="select-video-${totem.id}">
                             <option value="">-- Select a video --</option>
                             ${videoOptions}
                         </select>
                     </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label>Current Audio (Mobile)</label>
+                    <div class="form-group">
+                        <label for="select-audio-${totem.id}">Current Audio (Mobile)</label>
                         <select class="custom-select" id="select-audio-${totem.id}">
                             <option value="">-- Select an audio --</option>
                             ${audioOptions}
@@ -105,11 +105,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
                 <div class="card-actions">
-                    <button class="btn btn-yellow assign-btn" data-id="${totem.id}">
-                        <i data-lucide="save" style="width: 16px; height: 16px;"></i> Assign
+                    <button class="btn btn-primary assign-btn" data-id="${totem.id}">
+                        <i data-lucide="save"></i> Assign
                     </button>
-                    <button class="btn btn-dark link-btn" data-id="${totem.id}">
-                        <i data-lucide="smartphone" style="width: 16px; height: 16px;"></i> Mobile
+                    <button class="btn btn-secondary link-btn" data-id="${totem.id}">
+                        <i data-lucide="smartphone"></i> Mobile
                     </button>
                 </div>
             `;
@@ -144,7 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (res.ok) {
                 const btn = document.querySelector(`.assign-btn[data-id="${totemId}"]`);
                 const originalHtml = btn.innerHTML;
-                btn.innerHTML = '<i data-lucide="check" style="width: 16px; height: 16px;"></i> Saved';
+                btn.innerHTML = '<i data-lucide="check"></i> Saved';
                 lucide.createIcons();
                 setTimeout(() => {
                     btn.innerHTML = originalHtml;
@@ -168,7 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
             text: url,
             width: 200,
             height: 200,
-            colorDark : "#000000",
+            colorDark : "#034a5d", // --db-blue-900
             colorLight : "#ffffff",
             correctLevel : QRCode.CorrectLevel.H
         });

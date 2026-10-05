@@ -3,20 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Totem Control Center</title>
+    <title>Totem Control Center — DreamBricks</title>
+    <link rel="stylesheet" href="/static/css/design-system/styles.css">
     <link rel="stylesheet" href="/static/css/admin.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <img src="/static/images/dreambricks-horizontal-onlight.svg" alt="DreamBricks" class="brand-logo">
+        </div>
+    </header>
+
     <div class="admin-layout">
-        <header class="admin-header">
-            <h1>TOTEM CONTROL CENTER</h1>
-            <button id="addTotemBtn" class="btn btn-yellow">
+        <div class="page-header">
+            <div>
+                <h1>Totem Control Center</h1>
+                <p class="page-subtitle">Choose the video and audio each totem plays, and open the mobile link.</p>
+            </div>
+            <button id="addTotemBtn" class="btn btn-primary">
                 <i data-lucide="plus"></i> Add Totem
             </button>
-        </header>
+        </div>
 
         <main class="grid-container" id="totemGrid">
             <!-- Populated via JS -->
@@ -25,12 +34,12 @@
 
     <!-- QR Code Modal -->
     <div id="qrModal" class="modal fade-out">
-        <div class="modal-content">
-            <button id="closeModalBtn" class="close-btn"><i data-lucide="x"></i></button>
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+            <button id="closeModalBtn" class="close-btn" aria-label="Close"><i data-lucide="x"></i></button>
             <h2 id="modalTitle">Mobile Link</h2>
             <div id="qrcode" class="qr-container"></div>
             <p id="qrUrl" class="qr-url"></p>
-            <a id="openLinkBtn" href="#" target="_blank" class="btn btn-dark" style="margin-top: 16px; width: 100%; justify-content: center;">
+            <a id="openLinkBtn" href="#" target="_blank" class="btn btn-secondary btn-block">
                 <i data-lucide="external-link"></i> Test Mobile View
             </a>
         </div>
