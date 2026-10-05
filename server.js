@@ -29,6 +29,7 @@ const url = require("url");
 const bodyParser = require("body-parser");
 const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
+const { splitMedia, INPUT_EXTS: SPLIT_INPUT_EXTS } = require("./lib/media-splitter");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 // Load .env (Node >= 20.12 built-in); real env vars take precedence
@@ -308,12 +309,17 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // ── Media library (CRUD over assets/) ───────────────────────────────────────
 // Turns an arbitrary name into a safe "base.ext" (accents stripped, odd chars → "_")
+function sanitizeBaseName(raw) {
+  const name = path.basename(String(raw || "")).trim();
+  return path.basename(name, path.extname(name))
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[._]+/, "");
+}
+
 function sanitizeFilename(raw) {
   const name = path.basename(String(raw || "")).trim();
   const ext = path.extname(name).toLowerCase();
-  const base = path.basename(name, path.extname(name))
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[._]+/, "");
+  const base = sanitizeBaseName(name);
   if (!base || !MEDIA_EXTS.includes(ext)) return null;
   return base + ext;
 }
@@ -344,17 +350,17 @@ function totemsUsing(filename) {
     totemsConf[id].video === filename || totemsConf[id].audio === filename);
 }
 
-// Streams the request body into `targetName` (temp file + rename, so partial
-// uploads never show up in listings). Responds with `status` on success.
-function receiveUpload(req, res, targetName, status) {
+// Streams the request body into a hidden temp file in assets/ (listings skip
+// dotfiles). Calls onComplete(tmpPath, received, fail) once fully written;
+// on any error the temp file is removed and an error response is sent.
+function streamUploadToTemp(req, res, label, onComplete) {
   const declared = parseInt(req.headers["content-length"], 10);
   if (declared > MAX_UPLOAD_BYTES) {
     return res.status(413).json({ error: `Arquivo grande demais (máximo ${MAX_UPLOAD_BYTES / 1024 / 1024} MB)` });
   }
 
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
-  const filePath = path.join(ASSETS_DIR, targetName);
-  const tmpPath = path.join(ASSETS_DIR, `.upload-${Date.now()}-${targetName}`);
+  const tmpPath = path.join(ASSETS_DIR, `.upload-${Date.now()}-${label}`);
   const out = fs.createWriteStream(tmpPath);
   let received = 0;
   let failed = false;
@@ -380,7 +386,16 @@ function receiveUpload(req, res, targetName, status) {
   out.on("finish", () => {
     if (failed) return;
     if (received === 0) return fail(400, "Arquivo vazio");
-    fs.rename(tmpPath, filePath, err => {
+    onComplete(tmpPath, received, fail);
+  });
+
+  req.pipe(out);
+}
+
+// Saves the request body as assets/<targetName>. Responds with `status` on success.
+function receiveUpload(req, res, targetName, status) {
+  streamUploadToTemp(req, res, targetName, (tmpPath, received, fail) => {
+    fs.rename(tmpPath, path.join(ASSETS_DIR, targetName), err => {
       if (err) {
         console.error("[Media] Rename failed", err);
         return fail(500, "Não foi possível salvar o arquivo");
@@ -390,8 +405,6 @@ function receiveUpload(req, res, targetName, status) {
       res.status(status).json({ success: true, filename: targetName, type, size: received });
     });
   });
-
-  req.pipe(out);
 }
 
 app.get("/api/videos", (req, res) => res.json(listMedia("video")));
@@ -422,6 +435,47 @@ app.post("/api/media", (req, res) => {
     return res.status(409).json({ error: "O arquivo já existe", filename });
   }
   receiveUpload(req, res, filename, 201);
+});
+
+// Split: POST /api/media/split?filename=promo.mov[&overwrite=1]  (raw body)
+// Uploads a video WITH audio and saves it as <name>_video.<ext> + <name>_audio.mp3.
+// The original upload is not kept.
+app.post("/api/media/split", (req, res) => {
+  const raw = path.basename(String(req.query.filename || "")).trim();
+  const ext = path.extname(raw).toLowerCase();
+  const base = sanitizeBaseName(raw);
+  if (!base || !SPLIT_INPUT_EXTS.includes(ext)) {
+    return res.status(400).json({ error: `Arquivo inválido. Envie um vídeo com áudio: ${SPLIT_INPUT_EXTS.join(", ")}` });
+  }
+
+  // Check the likely output names before receiving a possibly large file
+  const overwrite = req.query.overwrite === "1" || req.query.overwrite === "true";
+  const videoName = `${base}_video${ext === ".webm" ? ".webm" : ".mp4"}`;
+  const audioName = `${base}_audio.mp3`;
+  const existing = [videoName, audioName].filter(f => fs.existsSync(path.join(ASSETS_DIR, f)));
+  if (existing.length && !overwrite) {
+    return res.status(409).json({ error: "Já existem arquivos com esses nomes", files: existing });
+  }
+
+  streamUploadToTemp(req, res, `${base}${ext}`, async (tmpPath, received) => {
+    const started = Date.now();
+    try {
+      const result = await splitMedia(tmpPath, { outDir: ASSETS_DIR, baseName: base, overwrite });
+      const video = path.basename(result.video);
+      const audio = path.basename(result.audio);
+      console.log(`[Media] Split ${raw} (${(received / 1024 / 1024).toFixed(1)} MB) → ${video} + ${audio}` +
+        `${result.transcoded ? " (video re-encoded)" : ""} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+      res.status(201).json({ success: true, video, audio, transcoded: result.transcoded, duration: result.duration });
+    } catch (err) {
+      console.error("[Media] Split failed:", err.message);
+      const userError = /não tem faixa|não suportado|Já existe/.test(err.message);
+      res.status(userError ? 400 : 500).json({
+        error: userError ? err.message : "Não foi possível separar o vídeo e o áudio",
+      });
+    } finally {
+      fs.rm(tmpPath, { force: true }, () => {});
+    }
+  });
 });
 
 // Replace content: PUT /api/media/:filename  (raw body, keeps the name)

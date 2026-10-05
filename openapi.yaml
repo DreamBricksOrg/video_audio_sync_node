@@ -201,6 +201,54 @@ paths:
         '400':
           description: Invalid URL, missing label or too many links
 
+  /api/media/split:
+    post:
+      summary: Upload Video With Audio and Split
+      description: |
+        Uploads a video that has audio and saves two files in `assets/`:
+        `<name>_video.<mp4|webm>` (no audio) and `<name>_audio.mp3` (aligned to the video timeline).
+        Videos whose codec browsers can't play (e.g. HEVC/ProRes .mov) are re-encoded to H.264 MP4.
+        The original upload is not kept. Requires ffmpeg/ffprobe on the server.
+      parameters:
+        - name: filename
+          in: query
+          required: true
+          schema:
+            type: string
+          example: campanha.mov
+        - name: overwrite
+          in: query
+          required: false
+          description: Set to `1` to replace existing output files.
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Split done
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  video: { type: string, example: campanha_video.mp4 }
+                  audio: { type: string, example: campanha_audio.mp3 }
+                  transcoded: { type: boolean }
+                  duration: { type: number, example: 30.0 }
+        '400':
+          description: Not a video, or the video has no audio track
+        '409':
+          description: Output files already exist (`files` lists them)
+        '413':
+          description: File exceeds the size limit
+
   /api/media/{filename}:
     parameters:
       - name: filename

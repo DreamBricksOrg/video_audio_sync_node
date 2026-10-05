@@ -318,9 +318,21 @@ html, body {
     line-height: var(--leading-snug); color: var(--db-blue-900);
 }
 
+.upload-options {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: var(--space-4);
+}
+.drop-zone div { display: flex; flex-direction: column; gap: 2px; }
+.drop-zone strong { color: var(--text-primary); font-weight: var(--weight-semibold); }
+.drop-zone code {
+    font-family: var(--font-mono); font-size: var(--text-xs);
+    padding: 0 4px; background: var(--surface-sunken); border-radius: 4px;
+}
+.drop-zone-split { border-color: var(--db-blue-300); background: oklch(from var(--db-blue-50) l c h / 0.35); }
+
 .drop-zone {
-    display: flex; align-items: center; justify-content: center; gap: var(--space-3);
-    padding: var(--space-6);
+    display: flex; align-items: center; justify-content: flex-start; gap: var(--space-4);
+    padding: var(--space-5) var(--space-6);
     background: var(--surface-card);
     border: 2px dashed var(--border-default);
     border-radius: var(--radius-lg);

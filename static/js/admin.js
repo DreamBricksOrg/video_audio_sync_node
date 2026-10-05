@@ -510,6 +510,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 li.querySelector('.progress-bar').style.width = `${pct}%`;
                 li.querySelector('.upload-status').textContent = `${pct}%`;
             },
+            status: msg => {
+                li.querySelector('.upload-status').textContent = msg;
+            },
             done: msg => {
                 li.classList.add('done');
                 li.querySelector('.progress-bar').style.width = '100%';
@@ -582,24 +585,71 @@ document.addEventListener('DOMContentLoaded', () => {
         await refreshAll();
     }
 
-    mediaInput.addEventListener('change', () => {
-        const files = [...mediaInput.files];
-        mediaInput.value = '';
-        if (files.length) uploadFiles(files);
-    });
+    // ── Video with audio → split into <name>_video + <name>_audio.mp3 ──
+    const SPLIT_EXTS = ['.mp4', '.mov', '.m4v', '.mkv', '.webm'];
 
-    ['dragenter', 'dragover'].forEach(evt => dropZone.addEventListener(evt, e => {
-        e.preventDefault();
-        dropZone.classList.add('dragover');
-    }));
-    ['dragleave', 'drop'].forEach(evt => dropZone.addEventListener(evt, e => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-    }));
-    dropZone.addEventListener('drop', e => {
-        const files = [...e.dataTransfer.files];
-        if (files.length) uploadFiles(files);
-    });
+    async function splitFile(file) {
+        const item = createUploadItem(file);
+        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+        if (!SPLIT_EXTS.includes(ext)) {
+            item.error(`Envie um vídeo com áudio (${SPLIT_EXTS.join(', ')})`);
+            return;
+        }
+
+        const splitUrl = overwrite =>
+            `/api/media/split?filename=${encodeURIComponent(file.name)}${overwrite ? '&overwrite=1' : ''}`;
+        // Once the upload hits 100% the server is still separating the tracks
+        const onProgress = pct => (pct < 100 ? item.progress(pct) : item.status('Separando vídeo e áudio…'));
+
+        try {
+            let res = await sendFile(file, { method: 'POST', url: splitUrl(false) }, onProgress);
+            if (res.status === 409) {
+                const files = (res.body.files || []).join(' e ');
+                if (!confirm(`${files} já existe(m) no servidor. Substituir?`)) {
+                    item.error('Ignorado — os arquivos já existem');
+                    return;
+                }
+                res = await sendFile(file, { method: 'POST', url: splitUrl(true) }, onProgress);
+            }
+            if (res.status === 201) {
+                item.done(`Separado: ${res.body.video} + ${res.body.audio}` +
+                    (res.body.transcoded ? ' (vídeo convertido para tocar no navegador)' : ''));
+            } else {
+                item.error(res.body.error || `Falha ao separar (${res.status})`);
+            }
+        } catch (e) {
+            item.error(e.message);
+        }
+    }
+
+    async function splitFiles(files) {
+        for (const file of files) await splitFile(file);
+        await refreshAll();
+    }
+
+    // File picker + drag-and-drop wiring shared by both upload areas
+    function bindUploadArea(zone, input, handler) {
+        input.addEventListener('change', () => {
+            const files = [...input.files];
+            input.value = '';
+            if (files.length) handler(files);
+        });
+        ['dragenter', 'dragover'].forEach(evt => zone.addEventListener(evt, e => {
+            e.preventDefault();
+            zone.classList.add('dragover');
+        }));
+        ['dragleave', 'drop'].forEach(evt => zone.addEventListener(evt, e => {
+            e.preventDefault();
+            zone.classList.remove('dragover');
+        }));
+        zone.addEventListener('drop', e => {
+            const files = [...e.dataTransfer.files];
+            if (files.length) handler(files);
+        });
+    }
+
+    bindUploadArea(dropZone, mediaInput, uploadFiles);
+    bindUploadArea(document.getElementById('splitDropZone'), document.getElementById('splitInput'), splitFiles);
 
     addTotemBtn.addEventListener('click', () => openTotemEditor());
 

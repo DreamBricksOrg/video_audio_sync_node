@@ -52,9 +52,25 @@
                 <input type="file" id="replaceInput" hidden>
             </div>
 
-            <div id="dropZone" class="drop-zone">
-                <i data-lucide="cloud-upload"></i>
-                <span>Arraste os arquivos para cá ou <label for="mediaInput" class="link">procure no computador</label></span>
+            <div class="upload-options">
+                <div id="dropZone" class="drop-zone">
+                    <i data-lucide="cloud-upload"></i>
+                    <div>
+                        <strong>Vídeo ou áudio prontos</strong>
+                        <span>Arraste para cá ou <label for="mediaInput" class="link">procure no computador</label>. O arquivo é salvo como está.</span>
+                    </div>
+                </div>
+
+                <div id="splitDropZone" class="drop-zone drop-zone-split">
+                    <i data-lucide="split"></i>
+                    <div>
+                        <strong>Vídeo com áudio → separar</strong>
+                        <span>Arraste para cá ou <label for="splitInput" class="link">procure no computador</label>.
+                            Vira dois arquivos: <code>nome_video</code> (sem som) para o totem e <code>nome_audio.mp3</code> para o celular.</span>
+                    </div>
+                    <input type="file" id="splitInput" multiple hidden
+                           accept=".mp4,.mov,.m4v,.mkv,.webm,video/mp4,video/quicktime,video/webm,video/x-matroska">
+                </div>
             </div>
 
             <ul id="uploadList" class="upload-list"></ul>
