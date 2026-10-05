@@ -30,7 +30,13 @@ const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
 
 // ── Config ──────────────────────────────────────────────────────────────────
+// Load .env (Node >= 20.12 built-in); real env vars take precedence
+try {
+  process.loadEnvFile(path.join(__dirname, ".env"));
+} catch (_) {}
+
 const PORT = process.env.PORT || 8001;
+const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
 const DRIFT_THRESHOLD_MS = 80;
 const DRIFT_INTERVAL_MS = 2000;
 const MAX_MOBILE_PER_SCREEN = 50;
@@ -104,6 +110,7 @@ let totemsConf = loadTotemsConf();
 
 // ── Swagger UI ──────────────────────────────────────────────────────────────
 const swaggerDocument = YAML.load(path.join(__dirname, 'openapi.yaml'));
+swaggerDocument.servers = [{ url: PUBLIC_URL }];
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // ── API ─────────────────────────────────────────────────────────────────────
@@ -515,9 +522,10 @@ function computeCorrection(clientPosition, startTime, duration) {
 // ── Start server ────────────────────────────────────────────────────────────
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n  🎬 OOH Audio Sync running on http://0.0.0.0:${PORT}`);
-  console.log(`  📺 Totem:  http://dbaudiosync.ngrok.app/static/totem.html?screen=totem1`);
-  console.log(`  📱 Mobile: http://dbaudiosync.ngrok.app/static/mobile.html?screen=totem1`);
-  console.log(`  📱 Mobile: http://dbaudiosync.ngrok.app/static/mobile_debug.html?screen=totem1`);
-  console.log(`  ❤️  Health: http://dbaudiosync.ngrok.app/health`);
-  console.log(`  📖 Docs:   http://0.0.0.0:${PORT}/api-docs\n`);
+  console.log(`  📺 Totem:  ${PUBLIC_URL}/static/totem.html?screen=totem1`);
+  console.log(`  ⚙️  Admin:  ${PUBLIC_URL}/static/admin.html`);
+  console.log(`  📱 Mobile: ${PUBLIC_URL}/static/mobile.html?screen=totem1`);
+  console.log(`  📱 Mobile: ${PUBLIC_URL}/static/mobile_debug.html?screen=totem1`);
+  console.log(`  ❤️  Health: ${PUBLIC_URL}/health`);
+  console.log(`  📖 Docs:   ${PUBLIC_URL}/api-docs\n`);
 });
