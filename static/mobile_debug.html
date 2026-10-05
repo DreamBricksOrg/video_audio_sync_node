@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>🔧 Audio Sync Debug</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="theme-color" content="#034a5d">
+    <title>Diagnóstico do áudio — DreamBricks</title>
+    <link rel="stylesheet" href="/static/css/design-system/styles.css">
     <link rel="stylesheet" href="/static/css/mobile_debug.css">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -13,19 +13,21 @@
 
     <!-- ── TAP OVERLAY ──────────────────────────────────────── -->
     <div class="tap-overlay" id="tapOverlay">
-        <div class="tap-icon" id="tapIcon"><i data-lucide="wrench"></i></div>
-        <div class="tap-text" id="tapText">Debug Mode</div>
-        <div class="tap-sub" id="tapSub">Toque para iniciar com diagnóstico</div>
-        <div class="tap-loading hidden" id="tapLoading">⏳ Conectando ao totem...</div>
+        <img src="/static/images/dreambricks-horizontal-onblue.svg" alt="DreamBricks" class="brand-logo">
+        <div class="tap-center">
+            <div class="tap-icon" id="tapIcon"><i data-lucide="wrench"></i></div>
+            <div class="tap-text" id="tapText">Modo diagnóstico</div>
+            <div class="tap-sub" id="tapSub">Toque para iniciar com diagnóstico</div>
+            <div class="tap-loading hidden" id="tapLoading">Conectando ao totem...</div>
+        </div>
     </div>
 
     <!-- ── DEBUG UI ─────────────────────────────────────────── -->
     <div class="debug-container hidden" id="mainUI">
 
         <div class="debug-header">
-            <h1 style="display: flex; align-items: center; gap: 8px;">
-                <i data-lucide="wrench" style="width: 18px; height: 18px;"></i> Debug Mode
-            </h1>
+            <img src="/static/images/dreambricks-horizontal-onblue.svg" alt="DreamBricks" class="brand-logo brand-logo-sm">
+            <h1><i data-lucide="wrench"></i> Diagnóstico</h1>
             <span class="debug-badge" id="screenBadge">TOTEM1</span>
         </div>
 
@@ -36,20 +38,16 @@
             <div class="bar"></div><div class="bar"></div><div class="bar"></div>
         </div>
 
-        <div class="promo-box">
-            <div class="promo-text">Enquanto escuta a propaganda, aproveite para saber mais sobre a 99food</div>
-            <div class="social-buttons">
-                <a href="#" id="btnDownloadApp" class="btn btn-yellow"><i data-lucide="smartphone"></i> Baixar App</a>
-                <a href="https://99app.com/99food/" target="_blank" class="btn btn-dark"><i data-lucide="utensils"></i> Site</a>
-                <a href="https://instagram.com/99brasil" target="_blank" class="btn btn-dark"><i data-lucide="instagram"></i> Inst</a>
-                <a href="https://x.com/voude99" target="_blank" class="btn btn-dark"><i data-lucide="twitter"></i> X</a>
-            </div>
+        <!-- Text and links come from the admin (per totem), see js/promo.js -->
+        <div class="promo-box hidden" id="promoBox">
+            <div class="promo-text" id="promoText"></div>
+            <div class="social-buttons" id="promoButtons"></div>
         </div>
 
         <!-- ── Playback ──────────────────────────────────────── -->
         <div class="debug-section">
-            <div class="section-title" style="display: flex; align-items: center; gap: 6px;">
-                <i data-lucide="play-circle" style="width: 14px; height: 14px;"></i> Playback
+            <div class="section-title">
+                <i data-lucide="play-circle"></i> Reprodução
             </div>
             <div class="metric-row">
                 <span class="metric-label">Posição Real</span>
@@ -64,22 +62,22 @@
                 <span class="metric-value" id="dbgDuration">--</span>
             </div>
             <div class="metric-row">
-                <span class="metric-label">Playback Rate</span>
+                <span class="metric-label">Velocidade</span>
                 <span class="metric-value" id="dbgRate">1.000x</span>
             </div>
             <div class="metric-row">
-                <span class="metric-label">Buffer</span>
+                <span class="metric-label">Carregado</span>
                 <span class="metric-value" id="dbgBuffer">0%</span>
             </div>
         </div>
 
         <!-- ── Sync ──────────────────────────────────────────── -->
         <div class="debug-section">
-            <div class="section-title" style="display: flex; align-items: center; gap: 6px;">
-                <i data-lucide="link" style="width: 14px; height: 14px;"></i> Sincronização
+            <div class="section-title">
+                <i data-lucide="link"></i> Sincronização
             </div>
             <div class="metric-row">
-                <span class="metric-label">Server Offset</span>
+                <span class="metric-label">Diferença do servidor</span>
                 <span class="metric-value info" id="dbgServerOffset">--</span>
             </div>
             <div class="metric-row">
@@ -87,18 +85,18 @@
                 <span class="metric-value" id="dbgLatency">--</span>
             </div>
             <div class="metric-row">
-                <span class="metric-label">Start Time (epoch)</span>
+                <span class="metric-label">Início (epoch)</span>
                 <span class="metric-value" id="dbgStartTime">--</span>
             </div>
         </div>
 
         <!-- ── Drift ─────────────────────────────────────────── -->
         <div class="debug-section">
-            <div class="section-title" style="display: flex; align-items: center; gap: 6px;">
-                <i data-lucide="ruler" style="width: 14px; height: 14px;"></i> Drift
+            <div class="section-title">
+                <i data-lucide="ruler"></i> Desvio
             </div>
             <div class="metric-row">
-                <span class="metric-label">Drift Atual</span>
+                <span class="metric-label">Desvio atual</span>
                 <span class="metric-value good" id="dbgDrift">—</span>
             </div>
             <div class="metric-row">
@@ -106,11 +104,11 @@
                 <span class="status-pill ok" id="dbgStatus">OK ✓</span>
             </div>
             <div class="metric-row">
-                <span class="metric-label">Correções HARD</span>
+                <span class="metric-label">Correções fortes</span>
                 <span class="metric-value bad" id="dbgHardCount">0</span>
             </div>
             <div class="metric-row">
-                <span class="metric-label">Correções SOFT</span>
+                <span class="metric-label">Correções suaves</span>
                 <span class="metric-value warn" id="dbgSoftCount">0</span>
             </div>
             <div class="metric-row">
@@ -121,9 +119,9 @@
 
         <!-- ── History ───────────────────────────────────────── -->
         <div class="debug-section">
-            <div class="section-title">📋 Histórico (últimas 10)</div>
+            <div class="section-title"><i data-lucide="list"></i> Histórico (últimas 10)</div>
             <div class="history-log" id="dbgHistory">
-                <div style="color: rgba(255,255,255,0.3)">Aguardando dados...</div>
+                <div class="history-empty">Aguardando dados...</div>
             </div>
         </div>
     </div>
@@ -131,6 +129,7 @@
     <!-- HTML5 audio element -->
     <audio id="audioPlayer" preload="auto" playsinline></audio>
 
+    <script src="/static/js/promo.js"></script>
     <script src="/static/js/mobile_debug.js"></script>
     <script>
         lucide.createIcons();

@@ -24,6 +24,7 @@ const http = require("http");
 const { WebSocketServer } = require("ws");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const url = require("url");
 const bodyParser = require("body-parser");
 const swaggerUi = require("swagger-ui-express");
@@ -42,6 +43,20 @@ const DRIFT_INTERVAL_MS = 2000;
 const MAX_MOBILE_PER_SCREEN = 50;
 const ASSETS_DIR = path.join(__dirname, "assets");
 const STATIC_DIR = path.join(__dirname, "static");
+
+const MAX_UPLOAD_BYTES = (parseInt(process.env.MAX_UPLOAD_MB, 10) || 500) * 1024 * 1024;
+const VIDEO_EXTS = [".mp4", ".webm"];
+const AUDIO_EXTS = [".mp3", ".wav", ".ogg"];
+const MEDIA_EXTS = [...VIDEO_EXTS, ...AUDIO_EXTS];
+
+// Admin auth — credentials come from .env
+const ADMIN_USER = process.env.ADMIN_USER || "";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+// Without a fixed secret, logins are invalidated on every restart
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+const SESSION_COOKIE = "db_admin";
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_LOCK_MS = 60 * 1000;
 
 const MIME_TYPES = {
   ".mp4": "video/mp4",
@@ -108,6 +123,182 @@ function saveTotemsConf(conf) {
 // Map from totem Id => configuration { video: "video.mp4" }
 let totemsConf = loadTotemsConf();
 
+// ── Mobile page promo (text + links), per totem ────────────────────────────
+// Used for totems that never had their links edited in the admin.
+const DEFAULT_PROMO = {
+  text: "Enquanto escuta a propaganda, aproveite para saber mais sobre a 99food",
+  app: {
+    label: "Baixar App",
+    ios: "https://apps.apple.com/br/app/99-corridas-food-pay/id553663691",
+    android: "https://play.google.com/store/apps/details?id=com.taxis99",
+    fallback: "https://99app.com/99food/",
+  },
+  links: [
+    { label: "Site", url: "https://99app.com/99food/", icon: "utensils" },
+    { label: "Inst", url: "https://instagram.com/99brasil", icon: "camera" },
+    { label: "X", url: "https://x.com/voude99", icon: "at-sign" },
+  ],
+};
+
+// Lucide icon names the admin can pick for a link button
+const PROMO_ICONS = [
+  "link", "globe", "utensils", "shopping-bag", "camera", "at-sign", "message-circle",
+  "play", "music", "ticket", "gift", "map-pin", "phone", "mail", "star", "heart",
+];
+const PROMO_MAX_LINKS = 6;
+
+function promoFor(id) {
+  return (totemsConf[id] && totemsConf[id].promo) || DEFAULT_PROMO;
+}
+
+// Validates admin input; returns { promo } or { error }. Only http(s) URLs are
+// accepted, since they end up as links on the public mobile page.
+function sanitizePromo(input) {
+  if (!input || typeof input !== "object") return { error: "Dados inválidos" };
+
+  const str = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const url = (v, field) => {
+    const s = str(v, 2000);
+    if (!s) return "";
+    try {
+      const u = new URL(s);
+      if (u.protocol === "http:" || u.protocol === "https:") return u.href;
+    } catch (_) {}
+    throw new Error(`${field}: digite o endereço completo, começando com https://`);
+  };
+
+  try {
+    const app = input.app || {};
+    const promo = {
+      text: str(input.text, 300),
+      app: {
+        label: str(app.label, 30) || "Baixar App",
+        ios: url(app.ios, "App Store (iPhone)"),
+        android: url(app.android, "Google Play (Android)"),
+        fallback: url(app.fallback, "Outros aparelhos"),
+      },
+      links: [],
+    };
+
+    const links = Array.isArray(input.links) ? input.links : [];
+    if (links.length > PROMO_MAX_LINKS) throw new Error(`No máximo ${PROMO_MAX_LINKS} links`);
+    links.forEach((l, i) => {
+      const label = str(l && l.label, 30);
+      const href = url(l && l.url, `Link ${i + 1}`);
+      if (!label || !href) throw new Error(`Link ${i + 1}: texto e endereço são obrigatórios`);
+      const icon = PROMO_ICONS.includes(l.icon) ? l.icon : "link";
+      promo.links.push({ label, url: href, icon });
+    });
+
+    return { promo };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+// ── Admin auth ──────────────────────────────────────────────────────────────
+// Stateless signed cookie, valid until logout. The signature includes the
+// password, so changing ADMIN_PASSWORD (or SESSION_SECRET) logs everyone out.
+function sign(value) {
+  return crypto.createHmac("sha256", SESSION_SECRET).update(value).digest("base64url");
+}
+
+function makeSessionToken(user) {
+  return `${Buffer.from(user).toString("base64url")}.${sign(`${user}:${ADMIN_PASSWORD}`)}`;
+}
+
+function safeEqual(a, b) {
+  const ha = crypto.createHash("sha256").update(String(a)).digest();
+  const hb = crypto.createHash("sha256").update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+function getCookie(req, name) {
+  const header = req.headers.cookie || "";
+  for (const part of header.split(";")) {
+    const i = part.indexOf("=");
+    if (i > -1 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return null;
+}
+
+function isAuthenticated(req) {
+  if (!ADMIN_USER || !ADMIN_PASSWORD) return false;
+  const token = getCookie(req, SESSION_COOKIE);
+  return !!token && safeEqual(token, makeSessionToken(ADMIN_USER));
+}
+
+function isHttps(req) {
+  return req.secure || req.headers["x-forwarded-proto"] === "https";
+}
+
+function setSessionCookie(req, res, value, maxAgeSeconds) {
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(value)}`,
+    "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${maxAgeSeconds}`,
+  ];
+  if (isHttps(req)) parts.push("Secure");
+  res.setHeader("Set-Cookie", parts.join("; "));
+}
+
+function requireAuth(req, res, next) {
+  if (isAuthenticated(req)) return next();
+  if (req.originalUrl.startsWith("/api/")) return res.status(401).json({ error: "Não autenticado" });
+  res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
+}
+
+// Brute-force guard: lock an IP for a minute after repeated failures
+const loginFailures = new Map(); // ip → { count, lockedUntil }
+
+app.get("/login", (req, res) => {
+  if (isAuthenticated(req)) return res.redirect("/admin");
+  res.sendFile(path.join(STATIC_DIR, "login.html"));
+});
+
+app.post("/api/login", (req, res) => {
+  if (!ADMIN_USER || !ADMIN_PASSWORD) {
+    return res.status(503).json({ error: "Login não configurado (defina ADMIN_USER e ADMIN_PASSWORD no .env)" });
+  }
+
+  const ip = req.ip;
+  const entry = loginFailures.get(ip);
+  if (entry && entry.lockedUntil > Date.now()) {
+    const wait = Math.ceil((entry.lockedUntil - Date.now()) / 1000);
+    return res.status(429).json({ error: `Muitas tentativas. Tente de novo em ${wait}s.` });
+  }
+
+  const { username, password } = req.body || {};
+  // Compare both (no short-circuit) so timing doesn't reveal which one was wrong
+  const userOk = safeEqual(username || "", ADMIN_USER);
+  const passOk = safeEqual(password || "", ADMIN_PASSWORD);
+  if (!userOk || !passOk) {
+    // An expired lock starts a fresh count
+    const count = entry && !entry.lockedUntil ? entry.count + 1 : 1;
+    loginFailures.set(ip, { count, lockedUntil: count >= LOGIN_MAX_FAILURES ? Date.now() + LOGIN_LOCK_MS : 0 });
+    console.warn(`[Auth] Failed login from ${ip} (${count})`);
+    return res.status(401).json({ error: "Usuário ou senha inválidos" });
+  }
+
+  loginFailures.delete(ip);
+  // ~10 years: the session only ends on logout
+  setSessionCookie(req, res, makeSessionToken(ADMIN_USER), 10 * 365 * 24 * 3600);
+  console.log(`[Auth] ${ADMIN_USER} logged in from ${ip}`);
+  res.json({ success: true, user: ADMIN_USER });
+});
+
+app.post("/api/logout", (req, res) => {
+  setSessionCookie(req, res, "", 0);
+  res.json({ success: true });
+});
+
+// Everything below is admin-only: admin page, API docs and /api/*
+app.get("/admin", requireAuth, (req, res) => res.sendFile(path.join(STATIC_DIR, "admin.html")));
+app.get("/static/admin.html", (req, res) => res.redirect("/admin"));
+app.use("/api", requireAuth);
+app.use("/api-docs", requireAuth);
+
+app.get("/api/session", (req, res) => res.json({ user: ADMIN_USER }));
+
 // ── Swagger UI ──────────────────────────────────────────────────────────────
 const swaggerDocument = YAML.load(path.join(__dirname, 'openapi.yaml'));
 swaggerDocument.servers = [{ url: PUBLIC_URL }];
@@ -115,27 +306,190 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // ── API ─────────────────────────────────────────────────────────────────────
 
-// Get all media assets (videos)
-app.get("/api/videos", (req, res) => {
-  if (!fs.existsSync(ASSETS_DIR)) return res.json([]);
-  
-  const files = fs.readdirSync(ASSETS_DIR)
-    .filter(f => !f.startsWith("."))
-    .filter(f => [".mp4", ".webm"].includes(path.extname(f).toLowerCase()));
-  
-  res.json(files);
+// ── Media library (CRUD over assets/) ───────────────────────────────────────
+// Turns an arbitrary name into a safe "base.ext" (accents stripped, odd chars → "_")
+function sanitizeFilename(raw) {
+  const name = path.basename(String(raw || "")).trim();
+  const ext = path.extname(name).toLowerCase();
+  const base = path.basename(name, path.extname(name))
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[._]+/, "");
+  if (!base || !MEDIA_EXTS.includes(ext)) return null;
+  return base + ext;
+}
+
+function mediaType(filename) {
+  return VIDEO_EXTS.includes(path.extname(filename).toLowerCase()) ? "video" : "audio";
+}
+
+// Resolves an existing media file from a route param, or null
+function existingMediaPath(filename) {
+  if (!filename || filename.startsWith(".") || /[\/]/.test(filename) || filename.includes("..")) return null;
+  if (!MEDIA_EXTS.includes(path.extname(filename).toLowerCase())) return null;
+  const filePath = path.join(ASSETS_DIR, filename);
+  return fs.existsSync(filePath) ? filePath : null;
+}
+
+function listMedia(type) {
+  if (!fs.existsSync(ASSETS_DIR)) return [];
+  return fs.readdirSync(ASSETS_DIR)
+    .filter(f => !f.startsWith(".") && MEDIA_EXTS.includes(path.extname(f).toLowerCase()))
+    .filter(f => !type || mediaType(f) === type)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+// Totem ids whose config references this file
+function totemsUsing(filename) {
+  return Object.keys(totemsConf).filter(id =>
+    totemsConf[id].video === filename || totemsConf[id].audio === filename);
+}
+
+// Streams the request body into `targetName` (temp file + rename, so partial
+// uploads never show up in listings). Responds with `status` on success.
+function receiveUpload(req, res, targetName, status) {
+  const declared = parseInt(req.headers["content-length"], 10);
+  if (declared > MAX_UPLOAD_BYTES) {
+    return res.status(413).json({ error: `Arquivo grande demais (máximo ${MAX_UPLOAD_BYTES / 1024 / 1024} MB)` });
+  }
+
+  fs.mkdirSync(ASSETS_DIR, { recursive: true });
+  const filePath = path.join(ASSETS_DIR, targetName);
+  const tmpPath = path.join(ASSETS_DIR, `.upload-${Date.now()}-${targetName}`);
+  const out = fs.createWriteStream(tmpPath);
+  let received = 0;
+  let failed = false;
+
+  const fail = (code, error) => {
+    if (failed) return;
+    failed = true;
+    req.unpipe(out);
+    out.destroy();
+    fs.rm(tmpPath, { force: true }, () => {});
+    if (!res.headersSent) res.status(code).json({ error });
+  };
+
+  req.on("data", chunk => {
+    received += chunk.length;
+    if (received > MAX_UPLOAD_BYTES) fail(413, "Arquivo grande demais");
+  });
+  req.on("aborted", () => fail(400, "Envio interrompido"));
+  out.on("error", e => {
+    console.error("[Media] Write failed", e);
+    fail(500, "Não foi possível salvar o arquivo");
+  });
+  out.on("finish", () => {
+    if (failed) return;
+    if (received === 0) return fail(400, "Arquivo vazio");
+    fs.rename(tmpPath, filePath, err => {
+      if (err) {
+        console.error("[Media] Rename failed", err);
+        return fail(500, "Não foi possível salvar o arquivo");
+      }
+      const type = mediaType(targetName);
+      console.log(`[Media] Saved ${type} ${targetName} (${(received / 1024 / 1024).toFixed(1)} MB)`);
+      res.status(status).json({ success: true, filename: targetName, type, size: received });
+    });
+  });
+
+  req.pipe(out);
+}
+
+app.get("/api/videos", (req, res) => res.json(listMedia("video")));
+app.get("/api/audios", (req, res) => res.json(listMedia("audio")));
+
+// List: GET /api/media
+app.get("/api/media", (req, res) => {
+  res.json(listMedia().map(filename => {
+    const stat = fs.statSync(path.join(ASSETS_DIR, filename));
+    return {
+      filename,
+      type: mediaType(filename),
+      size: stat.size,
+      modified: stat.mtime.toISOString(),
+      used_by: totemsUsing(filename),
+    };
+  }));
 });
 
-// Get all media assets (audios)
-app.get("/api/audios", (req, res) => {
-  if (!fs.existsSync(ASSETS_DIR)) return res.json([]);
-  
-  const files = fs.readdirSync(ASSETS_DIR)
-    .filter(f => !f.startsWith("."))
-    .filter(f => [".mp3", ".wav", ".ogg"].includes(path.extname(f).toLowerCase()));
-  
-  res.json(files);
+// Create: POST /api/media?filename=promo.mp4[&overwrite=1]  (raw body)
+app.post("/api/media", (req, res) => {
+  const filename = sanitizeFilename(req.query.filename);
+  if (!filename) {
+    return res.status(400).json({ error: `Arquivo inválido. Permitidos: ${MEDIA_EXTS.join(", ")}` });
+  }
+  const overwrite = req.query.overwrite === "1" || req.query.overwrite === "true";
+  if (fs.existsSync(path.join(ASSETS_DIR, filename)) && !overwrite) {
+    return res.status(409).json({ error: "O arquivo já existe", filename });
+  }
+  receiveUpload(req, res, filename, 201);
 });
+
+// Replace content: PUT /api/media/:filename  (raw body, keeps the name)
+app.put("/api/media/:filename", (req, res) => {
+  if (!existingMediaPath(req.params.filename)) return res.status(404).json({ error: "Arquivo não encontrado" });
+  receiveUpload(req, res, req.params.filename, 200);
+});
+
+// Rename: PATCH /api/media/:filename  { "filename": "new-name.mp4" }
+app.patch("/api/media/:filename", (req, res) => {
+  const oldName = req.params.filename;
+  const oldPath = existingMediaPath(oldName);
+  if (!oldPath) return res.status(404).json({ error: "Arquivo não encontrado" });
+
+  const newName = sanitizeFilename(req.body && req.body.filename);
+  if (!newName) return res.status(400).json({ error: `Nome inválido. Permitidos: ${MEDIA_EXTS.join(", ")}` });
+  if (mediaType(newName) !== mediaType(oldName)) {
+    return res.status(400).json({ error: `${mediaType(oldName) === "video" ? "Um vídeo precisa continuar com extensão de vídeo" : "Um áudio precisa continuar com extensão de áudio"}` });
+  }
+  if (newName === oldName) return res.json({ success: true, filename: newName, updated_totems: [] });
+  if (fs.existsSync(path.join(ASSETS_DIR, newName))) {
+    return res.status(409).json({ error: "Já existe um arquivo com esse nome", filename: newName });
+  }
+
+  try {
+    fs.renameSync(oldPath, path.join(ASSETS_DIR, newName));
+  } catch (e) {
+    console.error("[Media] Rename failed", e);
+    return res.status(500).json({ error: "Não foi possível renomear o arquivo" });
+  }
+
+  // Keep totem configs pointing at the file under its new name
+  const updated = totemsUsing(oldName);
+  updated.forEach(id => {
+    if (totemsConf[id].video === oldName) {
+      totemsConf[id].video = newName;
+      const ws = screenClients[id];
+      if (ws) safeSend(ws, { type: "change_video", filename: newName });
+    }
+    if (totemsConf[id].audio === oldName) totemsConf[id].audio = newName;
+  });
+  if (updated.length) saveTotemsConf(totemsConf);
+
+  console.log(`[Media] Renamed ${oldName} → ${newName}${updated.length ? ` (totems: ${updated.join(", ")})` : ""}`);
+  res.json({ success: true, filename: newName, updated_totems: updated });
+});
+
+// Delete: DELETE /api/media/:filename  (refused while a totem uses it)
+app.delete("/api/media/:filename", (req, res) => {
+  const filename = req.params.filename;
+  const filePath = existingMediaPath(filename);
+  if (!filePath) return res.status(404).json({ error: "Arquivo não encontrado" });
+
+  const usedBy = totemsUsing(filename);
+  if (usedBy.length) {
+    return res.status(409).json({ error: "O arquivo está em uso por um totem", used_by: usedBy });
+  }
+
+  try {
+    fs.unlinkSync(filePath);
+  } catch (e) {
+    console.error("[Media] Delete failed", e);
+    return res.status(500).json({ error: "Não foi possível excluir o arquivo" });
+  }
+  console.log(`[Media] Deleted ${filename}`);
+  res.json({ success: true, filename });
+});
+
 
 // Get totems list & states
 app.get("/api/totems", (req, res) => {
@@ -154,14 +508,35 @@ app.get("/api/totems", (req, res) => {
       
       result.push({
           id,
+          configured: !!totemsConf[id], // false = online but never saved in the admin
           is_online: isOnline,
           mobile_count: mobileCount,
           video: totemsConf[id] ? totemsConf[id].video : null,
-          audio: totemsConf[id] ? totemsConf[id].audio : null
+          audio: totemsConf[id] ? totemsConf[id].audio : null,
+          promo: promoFor(id),
       });
   });
   
   res.json(result);
+});
+
+// Promo options for the admin editor (icon list, limits, defaults)
+app.get("/api/promo/options", (req, res) => {
+  res.json({ icons: PROMO_ICONS, max_links: PROMO_MAX_LINKS, defaults: DEFAULT_PROMO });
+});
+
+// Update the mobile page text/links for a totem
+app.put("/api/totem/:id/promo", (req, res) => {
+  const { id } = req.params;
+  const { promo, error } = sanitizePromo(req.body);
+  if (error) return res.status(400).json({ error });
+
+  if (!totemsConf[id]) totemsConf[id] = {};
+  totemsConf[id].promo = promo;
+  saveTotemsConf(totemsConf);
+
+  console.log(`[Admin] Updated mobile links for totem ${id} (${promo.links.length} links)`);
+  res.json({ success: true, id, promo });
 });
 
 // Update specific totem's config
@@ -169,7 +544,7 @@ app.post("/api/totem/:id/config", (req, res) => {
   const { id } = req.params;
   const { video, audio } = req.body;
   
-  if (!video || !audio) return res.status(400).json({ error: "No video or audio specified" });
+  if (!video || !audio) return res.status(400).json({ error: "Escolha um vídeo e um áudio" });
   
   // Persist
   if (!totemsConf[id]) totemsConf[id] = {};
@@ -186,6 +561,88 @@ app.post("/api/totem/:id/config", (req, res) => {
   }
   
   res.json({ success: true, id, video, audio });
+});
+
+// ── Totems CRUD ─────────────────────────────────────────────────────────────
+// IDs go into URLs (?screen=ID) and the admin markup, so keep them simple
+const TOTEM_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+
+// Checks optional video/audio fields against assets/. Returns an error string or null.
+function validateTotemMedia(video, audio) {
+  if (video && !listMedia("video").includes(video)) return `Vídeo não encontrado: ${video}`;
+  if (audio && !listMedia("audio").includes(audio)) return `Áudio não encontrado: ${audio}`;
+  return null;
+}
+
+// Create: POST /api/totems  { id, video?, audio? }
+app.post("/api/totems", (req, res) => {
+  const { id, video = "", audio = "" } = req.body || {};
+  if (!TOTEM_ID_RE.test(id || "")) {
+    return res.status(400).json({ error: "O ID deve ter de 1 a 40 letras, números, - ou _" });
+  }
+  if (totemsConf[id]) return res.status(409).json({ error: `O totem "${id}" já existe` });
+  const mediaError = validateTotemMedia(video, audio);
+  if (mediaError) return res.status(400).json({ error: mediaError });
+
+  totemsConf[id] = { video, audio };
+  saveTotemsConf(totemsConf);
+  console.log(`[Admin] Created totem ${id}`);
+
+  // A totem already online under this ID picks up its video right away
+  const ws = screenClients[id];
+  if (ws && video) safeSend(ws, { type: "change_video", filename: video });
+
+  res.status(201).json({ success: true, id, video, audio });
+});
+
+// Update: PATCH /api/totem/:id  { id?, video?, audio? }  — `id` renames the totem
+app.patch("/api/totem/:id", (req, res) => {
+  const oldId = req.params.id;
+  if (!totemsConf[oldId]) return res.status(404).json({ error: "Totem não encontrado" });
+
+  const body = req.body || {};
+  const newId = body.id === undefined ? oldId : String(body.id).trim();
+  if (!TOTEM_ID_RE.test(newId)) {
+    return res.status(400).json({ error: "O ID deve ter de 1 a 40 letras, números, - ou _" });
+  }
+  if (newId !== oldId && totemsConf[newId]) {
+    return res.status(409).json({ error: `O totem "${newId}" já existe` });
+  }
+
+  const conf = { ...totemsConf[oldId] };
+  if (body.video !== undefined) conf.video = body.video || "";
+  if (body.audio !== undefined) conf.audio = body.audio || "";
+  const mediaError = validateTotemMedia(body.video, body.audio);
+  if (mediaError) return res.status(400).json({ error: mediaError });
+
+  const videoChanged = conf.video !== totemsConf[oldId].video;
+  if (newId !== oldId) delete totemsConf[oldId];
+  totemsConf[newId] = conf;
+  saveTotemsConf(totemsConf);
+
+  const ws = screenClients[oldId];
+  if (ws) {
+    if (newId !== oldId) {
+      // The totem page reloads itself with ?screen=<newId>
+      safeSend(ws, { type: "change_screen", screen: newId });
+    } else if (videoChanged && conf.video) {
+      safeSend(ws, { type: "change_video", filename: conf.video });
+    }
+  }
+
+  console.log(`[Admin] Updated totem ${oldId}${newId !== oldId ? ` → ${newId}` : ""}`);
+  res.json({ success: true, id: newId, renamed_from: newId !== oldId ? oldId : undefined, ...conf });
+});
+
+// Delete: DELETE /api/totem/:id  — removes the saved config (video, audio, links)
+app.delete("/api/totem/:id", (req, res) => {
+  const { id } = req.params;
+  if (!totemsConf[id]) return res.status(404).json({ error: "Totem não encontrado" });
+
+  delete totemsConf[id];
+  saveTotemsConf(totemsConf);
+  console.log(`[Admin] Deleted totem ${id}`);
+  res.json({ success: true, id, still_online: !!screenClients[id] });
 });
 
 // ── Health check ────────────────────────────────────────────────────────────
@@ -206,21 +663,37 @@ app.get("/health", (req, res) => {
 app.get("/media/:filename", (req, res) => {
   const filename = req.params.filename;
 
-  if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
-    return res.status(400).json({ error: "Invalid filename" });
+  if (filename.startsWith(".") || filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
+    return res.status(400).json({ error: "Nome de arquivo inválido" });
   }
 
   const filePath = path.join(ASSETS_DIR, filename);
 
   if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: "File not found" });
+    return res.status(404).json({ error: "Arquivo não encontrado" });
   }
 
   const stat = fs.statSync(filePath);
   const fileSize = stat.size;
   const ext = path.extname(filename).toLowerCase();
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
-  const range = req.headers.range;
+  // No cache lifetime: clients always revalidate (cheap 304 via ETag), so a
+  // replaced or renamed file is picked up on the next request.
+  const etag = `"${fileSize.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+  const cacheHeaders = {
+    "Cache-Control": "no-cache",
+    "ETag": etag,
+    "Last-Modified": stat.mtime.toUTCString(),
+  };
+
+  // If-Range with a stale validator → send the whole (new) file instead of a range
+  const ifRange = req.headers["if-range"];
+  const range = ifRange && ifRange !== etag ? null : req.headers.range;
+
+  if (!range && req.headers["if-none-match"] === etag) {
+    res.writeHead(304, cacheHeaders);
+    return res.end();
+  }
 
   if (range) {
     const parts = range.replace(/bytes=/, "").split("-");
@@ -238,7 +711,7 @@ app.get("/media/:filename", (req, res) => {
       "Accept-Ranges": "bytes",
       "Content-Length": chunkSize,
       "Content-Type": contentType,
-      "Cache-Control": "public, max-age=86400",
+      ...cacheHeaders,
     });
 
     fs.createReadStream(filePath, { start, end }).pipe(res);
@@ -247,7 +720,7 @@ app.get("/media/:filename", (req, res) => {
       "Content-Length": fileSize,
       "Content-Type": contentType,
       "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=86400",
+      ...cacheHeaders,
     });
 
     fs.createReadStream(filePath).pipe(res);
@@ -402,7 +875,8 @@ function handleMobile(ws, screenId) {
     duration: session.duration,
     server_time: Date.now() / 1000,
     drift_enabled: session.drift_enabled,
-    audio: totemAudio
+    audio: totemAudio,
+    promo: promoFor(screenId),
   });
 
   // Notify the totem that a mobile connected
@@ -523,9 +997,15 @@ function computeCorrection(clientPosition, startTime, duration) {
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n  🎬 OOH Audio Sync running on http://0.0.0.0:${PORT}`);
   console.log(`  📺 Totem:  ${PUBLIC_URL}/static/totem.html?screen=totem1`);
-  console.log(`  ⚙️  Admin:  ${PUBLIC_URL}/static/admin.html`);
+  console.log(`  ⚙️  Admin:  ${PUBLIC_URL}/admin`);
   console.log(`  📱 Mobile: ${PUBLIC_URL}/static/mobile.html?screen=totem1`);
   console.log(`  📱 Mobile: ${PUBLIC_URL}/static/mobile_debug.html?screen=totem1`);
   console.log(`  ❤️  Health: ${PUBLIC_URL}/health`);
   console.log(`  📖 Docs:   ${PUBLIC_URL}/api-docs\n`);
+  if (!ADMIN_USER || !ADMIN_PASSWORD) {
+    console.warn("  ⚠️  ADMIN_USER / ADMIN_PASSWORD not set in .env — admin login is disabled\n");
+  }
+  if (!process.env.SESSION_SECRET) {
+    console.warn("  ⚠️  SESSION_SECRET not set in .env — admin sessions end when the server restarts\n");
+  }
 });

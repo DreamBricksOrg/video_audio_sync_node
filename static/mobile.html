@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>🎧 Audio Sync</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="theme-color" content="#034a5d">
+    <title>Áudio sincronizado — DreamBricks</title>
+    <link rel="stylesheet" href="/static/css/design-system/styles.css">
     <link rel="stylesheet" href="/static/css/mobile.css">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -13,26 +13,29 @@
 
     <!-- ── OVERLAY: toque para iniciar (autoplay fallback) ── -->
     <div class="tap-overlay" id="tapOverlay">
-        <div class="tap-icon" id="tapIcon"><i data-lucide="headphones"></i></div>
-        <div class="tap-text" id="tapText">Toque para ouvir</div>
-        <div class="tap-sub" id="tapSub">O áudio será sincronizado automaticamente</div>
-        <div class="tap-loading hidden" id="tapLoading">⏳ Conectando ao totem...</div>
+        <img src="/static/images/dreambricks-horizontal-onblue.svg" alt="DreamBricks" class="brand-logo">
+        <div class="tap-center">
+            <div class="tap-icon" id="tapIcon"><i data-lucide="headphones"></i></div>
+            <div class="tap-text" id="tapText">Toque para ouvir</div>
+            <div class="tap-sub" id="tapSub">O áudio será sincronizado automaticamente</div>
+            <div class="tap-loading hidden" id="tapLoading">Conectando ao totem...</div>
+        </div>
     </div>
 
     <!-- ── MAIN: mostrado após o áudio começar ──────────── -->
     <div class="mobile-container hidden" id="mainUI">
-        <div class="header">
-            <h1 style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <i data-lucide="headphones"></i> Reproduzindo
-            </h1>
-        </div>
+        <img src="/static/images/dreambricks-horizontal-onblue.svg" alt="DreamBricks" class="brand-logo">
 
-        <div class="visualizer" id="visualizer">
-            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
-            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        <div class="now-playing">
+            <h1><i data-lucide="headphones"></i> Reproduzindo</h1>
+
+            <div class="visualizer" id="visualizer">
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            </div>
         </div>
 
         <!-- <div class="status-badge playing" id="statusBadge">
@@ -40,24 +43,20 @@
             <span id="statusLabel">Sincronizado</span>
         </div> -->
 
-        <div class="promo-box">
-            <div class="promo-text">Enquanto escuta a propaganda, aproveite para saber mais sobre a 99food</div>
-            <div class="social-buttons">
-                <a href="#" id="btnDownloadApp" class="btn btn-yellow"><i data-lucide="smartphone"></i> Baixar App</a>
-                <a href="https://99app.com/99food/" target="_blank" class="btn btn-dark"><i data-lucide="utensils"></i> Site</a>
-                <a href="https://instagram.com/99brasil" target="_blank" class="btn btn-dark"><i data-lucide="instagram"></i> Inst</a>
-                <a href="https://x.com/voude99" target="_blank" class="btn btn-dark"><i data-lucide="twitter"></i> X</a>
-            </div>
+        <!-- Text and links come from the admin (per totem), see js/promo.js -->
+        <div class="promo-box hidden" id="promoBox">
+            <div class="promo-text" id="promoText"></div>
+            <div class="social-buttons" id="promoButtons"></div>
         </div>
     </div>
 
     <!-- HTML5 audio element — iOS needs this for audio session activation -->
     <audio id="audioPlayer" preload="auto" playsinline></audio>
 
+    <script src="/static/js/promo.js"></script>
     <script src="/static/js/mobile.js"></script>
     <script>
         lucide.createIcons();
     </script>
 </body>
 </html>
-

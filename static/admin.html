@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Totem Control Center — DreamBricks</title>
+    <title>Central de Totens — DreamBricks</title>
     <link rel="stylesheet" href="/static/css/design-system/styles.css">
     <link rel="stylesheet" href="/static/css/admin.css">
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
@@ -13,36 +13,166 @@
     <header class="topbar">
         <div class="topbar-inner">
             <img src="/static/images/dreambricks-horizontal-onlight.svg" alt="DreamBricks" class="brand-logo">
+            <div class="topbar-user">
+                <span id="currentUser" class="user-name"></span>
+                <button id="logoutBtn" class="btn btn-ghost btn-sm">
+                    <i data-lucide="log-out"></i> Sair
+                </button>
+            </div>
         </div>
     </header>
 
     <div class="admin-layout">
         <div class="page-header">
             <div>
-                <h1>Totem Control Center</h1>
-                <p class="page-subtitle">Choose the video and audio each totem plays, and open the mobile link.</p>
+                <h1>Central de Totens</h1>
+                <p class="page-subtitle">Escolha o vídeo e o áudio de cada totem e abra o link do celular.</p>
             </div>
             <button id="addTotemBtn" class="btn btn-primary">
-                <i data-lucide="plus"></i> Add Totem
+                <i data-lucide="plus"></i> Adicionar totem
             </button>
         </div>
 
         <main class="grid-container" id="totemGrid">
             <!-- Populated via JS -->
         </main>
+
+        <section class="media-section">
+            <div class="section-header">
+                <div>
+                    <h2>Biblioteca de mídia</h2>
+                    <p class="page-subtitle">Vídeos (.mp4, .webm) e áudios (.mp3, .wav, .ogg) salvos no servidor.</p>
+                </div>
+                <label class="btn btn-secondary" for="mediaInput">
+                    <i data-lucide="upload"></i> Enviar arquivos
+                </label>
+                <input type="file" id="mediaInput" multiple hidden
+                       accept=".mp4,.webm,.mp3,.wav,.ogg,video/mp4,video/webm,audio/mpeg,audio/wav,audio/ogg">
+                <!-- Used by the "Replace" action; accept is set per file -->
+                <input type="file" id="replaceInput" hidden>
+            </div>
+
+            <div id="dropZone" class="drop-zone">
+                <i data-lucide="cloud-upload"></i>
+                <span>Arraste os arquivos para cá ou <label for="mediaInput" class="link">procure no computador</label></span>
+            </div>
+
+            <ul id="uploadList" class="upload-list"></ul>
+
+            <div class="media-columns">
+                <div class="media-panel">
+                    <h3><i data-lucide="film"></i> Vídeos <span class="count" id="videoCount">0</span></h3>
+                    <ul id="videoList" class="media-list"></ul>
+                </div>
+                <div class="media-panel">
+                    <h3><i data-lucide="music"></i> Áudios <span class="count" id="audioCount">0</span></h3>
+                    <ul id="audioList" class="media-list"></ul>
+                </div>
+            </div>
+        </section>
     </div>
 
     <!-- QR Code Modal -->
     <div id="qrModal" class="modal fade-out">
         <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-            <button id="closeModalBtn" class="close-btn" aria-label="Close"><i data-lucide="x"></i></button>
-            <h2 id="modalTitle">Mobile Link</h2>
+            <button id="closeModalBtn" class="close-btn" aria-label="Fechar"><i data-lucide="x"></i></button>
+            <h2 id="modalTitle">Link do celular</h2>
             <div id="qrcode" class="qr-container"></div>
             <p id="qrUrl" class="qr-url"></p>
             <a id="openLinkBtn" href="#" target="_blank" class="btn btn-secondary btn-block">
-                <i data-lucide="external-link"></i> Test Mobile View
+                <i data-lucide="external-link"></i> Testar página do celular
             </a>
         </div>
+    </div>
+
+    <!-- Totem create / edit -->
+    <div id="totemModal" class="modal fade-out">
+        <form id="totemForm" class="modal-content modal-form" role="dialog" aria-modal="true" aria-labelledby="totemModalTitle" novalidate>
+            <button type="button" class="close-btn" data-close-totem aria-label="Fechar"><i data-lucide="x"></i></button>
+            <h2 id="totemModalTitle">Adicionar totem</h2>
+
+            <div class="form-group">
+                <label for="totemIdInput">ID do totem</label>
+                <input id="totemIdInput" class="text-input" maxlength="40" autocomplete="off"
+                       placeholder="ex.: shopping_paulista_1" pattern="[A-Za-z0-9_\-]{1,40}" required>
+                <p class="field-hint">Letras, números, - e _. A tela do totem deve abrir:</p>
+                <code id="totemUrlHint" class="url-hint"></code>
+                <p id="totemRenameWarning" class="field-warning" hidden>
+                    Renomear muda este endereço. Um totem ligado agora recarrega sozinho com o novo ID;
+                    um totem desligado precisa ser aberto no endereço novo.
+                </p>
+            </div>
+
+            <div class="form-group">
+                <label for="totemVideoSelect">Vídeo</label>
+                <select id="totemVideoSelect" class="custom-select"></select>
+            </div>
+
+            <div class="form-group">
+                <label for="totemAudioSelect">Áudio (celular)</label>
+                <select id="totemAudioSelect" class="custom-select"></select>
+            </div>
+
+            <p id="totemError" class="form-error" role="alert" hidden></p>
+
+            <div class="modal-actions">
+                <span class="spacer"></span>
+                <button type="button" class="btn btn-secondary" data-close-totem>Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="totemSaveBtn">Criar totem</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Mobile page links editor -->
+    <div id="promoModal" class="modal fade-out">
+        <form id="promoForm" class="modal-content modal-form" role="dialog" aria-modal="true" aria-labelledby="promoTitle" novalidate>
+            <button type="button" class="close-btn" data-close-promo aria-label="Fechar"><i data-lucide="x"></i></button>
+            <h2 id="promoTitle">Links da página do celular</h2>
+            <p class="modal-subtitle">O que as pessoas veem no celular enquanto o áudio toca.</p>
+
+            <div class="form-group">
+                <label for="promoText">Mensagem</label>
+                <textarea id="promoText" class="text-input" rows="2" maxlength="300"
+                          placeholder="Ex.: Enquanto escuta, saiba mais sobre a marca"></textarea>
+            </div>
+
+            <fieldset class="form-fieldset">
+                <legend>Botão de baixar o app <span class="hint">deixe os endereços vazios para esconder</span></legend>
+                <div class="form-group">
+                    <label for="promoAppLabel">Texto do botão</label>
+                    <input id="promoAppLabel" class="text-input" maxlength="30" placeholder="Baixar App">
+                </div>
+                <div class="form-group">
+                    <label for="promoAppIos">App Store (iPhone)</label>
+                    <input id="promoAppIos" class="text-input" type="url" placeholder="https://apps.apple.com/...">
+                </div>
+                <div class="form-group">
+                    <label for="promoAppAndroid">Google Play (Android)</label>
+                    <input id="promoAppAndroid" class="text-input" type="url" placeholder="https://play.google.com/...">
+                </div>
+                <div class="form-group">
+                    <label for="promoAppFallback">Outros aparelhos</label>
+                    <input id="promoAppFallback" class="text-input" type="url" placeholder="https://...">
+                </div>
+            </fieldset>
+
+            <fieldset class="form-fieldset">
+                <legend>Links</legend>
+                <div id="promoLinks" class="link-rows"></div>
+                <button type="button" id="addLinkBtn" class="btn btn-secondary btn-sm">
+                    <i data-lucide="plus"></i> Adicionar link
+                </button>
+            </fieldset>
+
+            <p id="promoError" class="form-error" role="alert" hidden></p>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" id="promoResetBtn">Restaurar padrão</button>
+                <span class="spacer"></span>
+                <button type="button" class="btn btn-secondary" data-close-promo>Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="promoSaveBtn">Salvar</button>
+            </div>
+        </form>
     </div>
 
     <script src="/static/js/admin.js"></script>

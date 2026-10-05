@@ -216,6 +216,7 @@ function connectSync() {
 
         if (data.type === "sync") {
             syncData = data;
+            renderPromo(data.promo);
             if (userTapped && !isPlaying) startPlayback();
         }
     };
@@ -294,23 +295,3 @@ document.addEventListener("visibilitychange", () => {
         connectSync();
     }
 });
-
-// ── App Download Button Logic ──────────────────────────
-const btnDownloadApp = document.getElementById("btnDownloadApp");
-if (btnDownloadApp) {
-    btnDownloadApp.addEventListener("click", (e) => {
-        e.preventDefault();
-        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-        
-        if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
-            // iOS: App Store link (using generic 99 app link for demonstration)
-            window.location.href = "https://apps.apple.com/br/app/99-corridas-food-pay/id553663691";
-        } else if (/android/i.test(userAgent)) {
-            // Android: Play Store link
-            window.location.href = "https://play.google.com/store/apps/details?id=com.taxis99";
-        } else {
-            // Fallback for Desktop/Other: 99Food site
-            window.location.href = "https://99app.com/99food/";
-        }
-    });
-}

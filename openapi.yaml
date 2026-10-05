@@ -53,6 +53,285 @@ paths:
                   type: string
                 example: ["ivete_video.mp4", "promo.mp4"]
 
+  /api/login:
+    post:
+      summary: Admin Login
+      description: |
+        Checks `ADMIN_USER` / `ADMIN_PASSWORD` from `.env` and sets the `db_admin` HttpOnly cookie.
+        The session lasts until logout. All other `/api/*` routes require this cookie.
+        After 5 failed attempts the IP is locked for 60 seconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Logged in (cookie set)
+        '401':
+          description: Invalid username or password
+        '429':
+          description: Too many failed attempts
+        '503':
+          description: Login not configured in `.env`
+
+  /api/logout:
+    post:
+      summary: Admin Logout
+      description: Clears the session cookie.
+      responses:
+        '200':
+          description: Logged out
+
+  /api/totems:
+    post:
+      summary: Create Totem
+      description: ID must be 1–40 letters, numbers, `-` or `_`. Video/audio are optional but must exist in `assets/`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: { type: string, example: shopping_paulista_1 }
+                video: { type: string, example: promo.mp4 }
+                audio: { type: string, example: promo.mp3 }
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Invalid ID or media not found
+        '409':
+          description: ID already exists
+
+  /api/totem/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        example: totem1
+    patch:
+      summary: Update or Rename Totem
+      description: |
+        Updates video/audio and/or renames the totem (`id`). Settings and mobile links move to the new ID.
+        If the totem screen is online it receives `change_screen` and reloads with `?screen=<new id>`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: { type: string, example: totem1_lobby }
+                video: { type: string }
+                audio: { type: string }
+      responses:
+        '200':
+          description: Updated
+        '400':
+          description: Invalid ID or media not found
+        '404':
+          description: Totem not found
+        '409':
+          description: New ID already exists
+    delete:
+      summary: Delete Totem
+      description: Removes the saved settings (video, audio, mobile links). `still_online` tells if its screen is still connected.
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Totem not found
+
+  /api/promo/options:
+    get:
+      summary: Mobile Links Editor Options
+      description: Icon names allowed for link buttons, the max number of links and the default text/links.
+      responses:
+        '200':
+          description: Options
+
+  /api/totem/{id}/promo:
+    put:
+      summary: Update Mobile Page Text and Links
+      description: |
+        Sets what the mobile (audio) page shows for this totem: a message, the app download
+        button (store link per device) and up to 6 link buttons. URLs must be http(s).
+        Totems never edited use the default (99food) content.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: totem1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string, example: "Enquanto escuta, saiba mais sobre a marca" }
+                app:
+                  type: object
+                  properties:
+                    label: { type: string, example: Baixar App }
+                    ios: { type: string, example: "https://apps.apple.com/..." }
+                    android: { type: string, example: "https://play.google.com/..." }
+                    fallback: { type: string, example: "https://example.com" }
+                links:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      label: { type: string, example: Site }
+                      url: { type: string, example: "https://example.com" }
+                      icon: { type: string, example: globe }
+      responses:
+        '200':
+          description: Saved
+        '400':
+          description: Invalid URL, missing label or too many links
+
+  /api/media/{filename}:
+    parameters:
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+        example: promo.mp4
+    put:
+      summary: Replace File Content
+      description: Overwrites an existing file with the raw request body, keeping its name.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: File replaced
+        '404':
+          description: File not found
+        '413':
+          description: File exceeds the size limit
+    patch:
+      summary: Rename File
+      description: |
+        Renames a file (the name is sanitized; a video must stay a video, an audio an audio).
+        Totems using the file are updated to the new name, and online totems switch video immediately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filename: { type: string, example: new-name.mp4 }
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  filename: { type: string }
+                  updated_totems: { type: array, items: { type: string } }
+        '400':
+          description: Invalid name or type change
+        '404':
+          description: File not found
+        '409':
+          description: Another file already has this name
+    delete:
+      summary: Delete File
+      description: Deletes a file. Refused while any totem is configured to use it.
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: File not found
+        '409':
+          description: File is in use (`used_by` lists the totems)
+
+  /api/media:
+    get:
+      summary: List Media Files
+      description: All videos and audios in `assets/`, with size, last modified date and the totems using each file.
+      responses:
+        '200':
+          description: Media list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    filename: { type: string, example: promo.mp4 }
+                    type: { type: string, enum: [video, audio] }
+                    size: { type: integer }
+                    modified: { type: string, format: date-time }
+                    used_by: { type: array, items: { type: string } }
+    post:
+      summary: Upload Video or Audio
+      description: |
+        Saves a video (.mp4, .webm) or audio (.mp3, .wav, .ogg) file into the `assets/` directory.
+        The request body is the raw file bytes. The filename is sanitized (accents removed,
+        unsupported characters replaced with `_`). Max size is `MAX_UPLOAD_MB` (default 500 MB).
+      parameters:
+        - name: filename
+          in: query
+          required: true
+          schema:
+            type: string
+          example: promo.mp4
+        - name: overwrite
+          in: query
+          required: false
+          description: Set to `1` to replace an existing file with the same name.
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: File saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  filename: { type: string, example: promo.mp4 }
+                  type: { type: string, enum: [video, audio] }
+                  size: { type: integer, example: 1048576 }
+        '400':
+          description: Invalid filename/extension, empty file or aborted upload
+        '409':
+          description: A file with this name already exists (retry with `overwrite=1`)
+        '413':
+          description: File exceeds the size limit
+
   /api/totems:
     get:
       summary: List Registered Totems

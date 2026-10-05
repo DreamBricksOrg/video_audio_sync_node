@@ -1,0 +1,76 @@
+/* Login page — DreamBricks design system tokens */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    min-height: 100vh;
+    font-family: var(--font-body);
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+    background: var(--surface-page);
+    color: var(--text-primary);
+}
+
+.login-page {
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    padding: var(--space-6) var(--space-4);
+}
+
+.login-card {
+    width: 100%; max-width: 400px;
+    display: flex; flex-direction: column; gap: var(--space-5);
+    padding: var(--space-8);
+    background: var(--surface-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+}
+
+.brand-logo { height: 36px; align-self: flex-start; }
+
+.login-heading h1 {
+    font-family: var(--font-brand);
+    font-size: var(--text-xl); font-weight: var(--weight-bold);
+    line-height: var(--leading-snug); letter-spacing: var(--tracking-tight);
+    color: var(--db-blue-900);
+}
+.login-heading p { margin-top: var(--space-1); font-size: var(--text-sm); color: var(--text-secondary); }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.field input {
+    height: 40px; padding: 0 12px;
+    background: var(--surface-card);
+    border: 1px solid var(--border-default); border-radius: var(--radius-md);
+    font-family: inherit; font-size: var(--text-base); color: var(--text-primary);
+    outline: none;
+    transition: border-color var(--duration-fast) var(--ease-standard),
+                box-shadow var(--duration-fast) var(--ease-standard);
+}
+.field input:hover { border-color: var(--border-strong); }
+.field input:focus { border-color: var(--border-brand); box-shadow: var(--shadow-focus); }
+.field input[aria-invalid="true"] { border-color: var(--db-danger-500); }
+
+.login-error {
+    padding: var(--space-2) var(--space-3);
+    background: var(--db-danger-100); color: var(--db-danger-500);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm); font-weight: var(--weight-medium);
+}
+
+.btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    height: 44px; padding: 0 var(--space-4);
+    border: 1px solid transparent; border-radius: var(--radius-md);
+    font-family: var(--font-body); font-size: var(--text-base); font-weight: var(--weight-semibold);
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-standard),
+                transform var(--duration-fast) var(--ease-standard);
+}
+.btn:active { transform: scale(0.98); }
+.btn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.btn:disabled { opacity: 0.6; cursor: progress; }
+.btn-primary { background: var(--db-blue-500); color: var(--text-on-brand); }
+.btn-primary:hover:not(:disabled) { background: var(--db-blue-600); }
+.btn-primary:active:not(:disabled) { background: var(--db-blue-700); }

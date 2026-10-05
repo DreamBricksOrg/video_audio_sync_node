@@ -108,7 +108,7 @@ function switchToWebAudio() {
     usingWebAudio = true;
     audio.muted = true;
     audio.volume = 0;
-    addHistory("OK", `Switched to WebAudio at ${position.toFixed(2)}s`);
+    addHistory("OK", `Mudou para WebAudio em ${position.toFixed(2)}s`);
 }
 
 // ── Background: fetch + decode + switch ────────────────
@@ -117,17 +117,17 @@ async function loadAndSwitch() {
         if (!syncData || !syncData.audio) return;
 
         // AudioContext created synchronously in startPlayback()
-        addHistory("OK", "Fetching audio buffer...");
+        addHistory("OK", "Baixando o áudio...");
         const response = await fetch(syncData.audio);
         const arrayBuf = await response.arrayBuffer();
         const sizeMB = (arrayBuf.byteLength / 1024 / 1024).toFixed(1);
 
         audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
-        addHistory("OK", `Decoded: ${audioBuffer.duration.toFixed(1)}s, ${sizeMB}MB`);
+        addHistory("OK", `Decodificado: ${audioBuffer.duration.toFixed(1)}s, ${sizeMB}MB`);
 
         switchToWebAudio();
     } catch (err) {
-        addHistory("HARD", `WebAudio failed: ${err.message} — using <audio>`);
+        addHistory("HARD", `WebAudio falhou: ${err.message} — usando <audio>`);
     }
 }
 
@@ -146,7 +146,7 @@ function startPlayback() {
         keepAliveAudio = new Audio(SILENT_MP3);
         keepAliveAudio.loop = true;
         // keepAliveAudio.muted = true;
-        keepAliveAudio.play().catch(e => addHistory("HARD", "Keep-alive failed"));
+        keepAliveAudio.play().catch(e => addHistory("HARD", "Keep-alive falhou"));
     }
 
     // MUST create/resume AudioContext synchronously in the gesture handler!
@@ -165,7 +165,7 @@ function startPlayback() {
         unlockSource.connect(audioCtx.destination);
         unlockSource.start(0);
     } catch (e) {
-        addHistory("HARD", "Unlock silence failed");
+        addHistory("HARD", "Falha ao liberar o áudio");
     }
 
     // Set audio track dynamically
@@ -178,7 +178,7 @@ function startPlayback() {
 
     audio.play().then(() => {
         audio.currentTime = position;
-        addHistory("OK", `<audio> playing from ${position.toFixed(2)}s`);
+        addHistory("OK", `<audio> tocando a partir de ${position.toFixed(2)}s`);
 
         isPlaying = true;
         playStartedAt = Date.now();
@@ -202,7 +202,7 @@ function startPlayback() {
         loadAndSwitch();
 
     }).catch(err => {
-        addHistory("HARD", `Play failed: ${err.message}`);
+        addHistory("HARD", `Falha ao tocar: ${err.message}`);
         tapText.textContent = "Toque novamente";
         tapIcon.innerHTML = '<i data-lucide="refresh-cw"></i>';
         lucide.createIcons();
@@ -243,6 +243,7 @@ function connectSync() {
 
         if (data.type === "sync") {
             syncData = data;
+            renderPromo(data.promo);
             if (userTapped && !isPlaying) startPlayback();
         }
     };
@@ -299,7 +300,7 @@ function startDriftConnection() {
                 document.getElementById("dbgHardCount").textContent = hardCount;
                 dbgDrift.className = "metric-value bad";
                 dbgStatus.className = "status-pill correcting";
-                dbgStatus.textContent = "RESYNC ⚡";
+                dbgStatus.textContent = "RESSINCRONIZANDO";
 
                 if (usingWebAudio) {
                     webAudioPlayFrom(data.target_time);
@@ -309,7 +310,7 @@ function startDriftConnection() {
                 
                 document.getElementById("dbgLastCorrection").textContent =
                     `HARD ${data.drift_ms}ms @ ${timeStr()}`;
-                addHistory("HARD", `Seek to ${data.target_time.toFixed(2)}s (${data.drift_ms}ms)`);
+                addHistory("HARD", `Pulou para ${data.target_time.toFixed(2)}s (${data.drift_ms}ms)`);
             }
         }
 
@@ -323,7 +324,7 @@ function startDriftConnection() {
         }
     };
 
-    driftWs.onclose = () => addHistory("HARD", "Drift WS disconnected");
+    driftWs.onclose = () => addHistory("HARD", "Conexão de desvio caiu");
 }
 
 // ── Visualizer ─────────────────────────────────────────
@@ -347,7 +348,7 @@ function startDebugLoop() {
         document.getElementById("dbgRealPos").textContent = `${pos.toFixed(2)}s`;
 
         const rateEl = document.getElementById("dbgRate");
-        rateEl.textContent = usingWebAudio ? "WebAudio ✓" : "<audio> (loading...)";
+        rateEl.textContent = usingWebAudio ? "WebAudio ✓" : "<audio> (carregando...)";
         rateEl.className = usingWebAudio ? "metric-value good" : "metric-value";
 
         document.getElementById("dbgBuffer").textContent =
@@ -369,23 +370,3 @@ document.addEventListener("visibilitychange", () => {
         connectSync();
     }
 });
-
-// ── App Download Button Logic ──────────────────────────
-const btnDownloadApp = document.getElementById("btnDownloadApp");
-if (btnDownloadApp) {
-    btnDownloadApp.addEventListener("click", (e) => {
-        e.preventDefault();
-        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-        
-        if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
-            // iOS: App Store link
-            window.location.href = "https://apps.apple.com/br/app/99-motorista-e-passageiro/id526117622";
-        } else if (/android/i.test(userAgent)) {
-            // Android: Play Store link
-            window.location.href = "https://play.google.com/store/apps/details?id=com.taxis99";
-        } else {
-            // Fallback for Desktop/Other
-            window.location.href = "https://99app.com/99food/";
-        }
-    });
-}

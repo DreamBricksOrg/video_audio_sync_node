@@ -20,7 +20,7 @@ let loopsToHide = 0;
 if (SHOW_QR) {
     new QRCode(document.getElementById("qrWrapper"), {
         text: MOBILE_URL, width: 200, height: 200,
-        colorDark: "#000000", colorLight: "#ffffff",
+        colorDark: "#034a5d", colorLight: "#ffffff", // --db-blue-900 on white
         correctLevel: QRCode.CorrectLevel.H,
     });
 } else {
@@ -85,6 +85,12 @@ function registerSession() {
             const data = JSON.parse(e.data);
             if (data.type === "mobile_connected") {
                 hideQrForLoops(2);
+            } else if (data.type === "change_screen" && data.screen) {
+                // Renamed in the admin: reload under the new ID (new QR, new config)
+                console.log(`[Totem] Screen renamed to ${data.screen} — reloading`);
+                const params = new URLSearchParams(location.search);
+                params.set("screen", data.screen);
+                location.replace(`${location.pathname}?${params}`);
             } else if (data.type === "change_video") {
                 // Prevent infinite loop by checking if we are already playing this video
                 if (!video.src.includes(data.filename)) {
