@@ -43,6 +43,11 @@ const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replac
 const DRIFT_THRESHOLD_MS = 80;
 const DRIFT_INTERVAL_MS = 2000;
 const MAX_MOBILE_PER_SCREEN = 50;
+// Abuse protection for public embeds
+const MAX_SCREENS_PER_IP = parseInt(process.env.MAX_SCREENS_PER_IP, 10) || 20;
+const MAX_INSTANCES_PER_CAMPAIGN = parseInt(process.env.MAX_INSTANCES_PER_CAMPAIGN, 10) || 2000;
+// Behind a proxy/tunnel (ngrok, Nginx, Cloudflare) set TRUST_PROXY=1 to use X-Forwarded-For
+const TRUST_PROXY = process.env.TRUST_PROXY === "1";
 const ASSETS_DIR = path.join(__dirname, "assets");
 const STATIC_DIR = path.join(__dirname, "static");
 
@@ -779,6 +784,21 @@ app.use("/static", express.static(STATIC_DIR));
 const wss = new WebSocketServer({ noServer: true });
 
 // ── WS route matching ───────────────────────────────────────────────────────
+const screensPerIp = new Map(); // ip → open screen sockets
+
+function clientIp(req) {
+  if (TRUST_PROXY && req.headers["x-forwarded-for"]) {
+    return String(req.headers["x-forwarded-for"]).split(",")[0].trim();
+  }
+  return req.socket.remoteAddress || "unknown";
+}
+
+// Without TRUST_PROXY, everything behind a local tunnel looks like loopback:
+// we can't tell visitors apart, so the per-IP limit doesn't apply to it
+function isLoopback(ip) {
+  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+}
+
 server.on("upgrade", (req, socket, head) => {
   const parsed = url.parse(req.url, true);
   const match = parsed.pathname.match(/^\/ws\/(screen|mobile|drift)\/([^/]+)$/);
@@ -787,6 +807,7 @@ server.on("upgrade", (req, socket, head) => {
   req._wsRoute = match[1];
   req._screenId = match[2];                         // campaign (totem ID)
   req._instanceId = String(parsed.query.instance || "");
+  req._ip = clientIp(req);
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
 });
 
@@ -796,14 +817,26 @@ wss.on("connection", (ws, req) => {
   const campaign = req._screenId;
   const instanceId = req._instanceId;
 
-  if (route === "screen") handleScreen(ws, campaign, instanceId);
+  if (route === "screen") handleScreen(ws, campaign, instanceId, req._ip);
   else if (route === "mobile") handleMobile(ws, campaign, instanceId);
   else if (route === "drift") handleDrift(ws, campaign, instanceId);
 });
 
 // ── /ws/screen/:campaign?instance=ID — a screen playing the campaign ────────
 // Stays open: receives change_video / change_screen / mobile_connected.
-function handleScreen(ws, campaign, instanceId) {
+function handleScreen(ws, campaign, instanceId, ip) {
+  const reconnecting = !!instances.get(campaign, instanceId);
+  if (!reconnecting && instances.online(campaign).length >= MAX_INSTANCES_PER_CAMPAIGN) {
+    ws.close(4029, "Campaign screen limit");
+    return;
+  }
+  const limitIp = TRUST_PROXY || !isLoopback(ip);
+  if (limitIp && (screensPerIp.get(ip) || 0) >= MAX_SCREENS_PER_IP) {
+    ws.close(4029, "Too many screens from this address");
+    return;
+  }
+  screensPerIp.set(ip, (screensPerIp.get(ip) || 0) + 1);
+
   const inst = instances.register(campaign, instanceId, ws);
   console.log(`[Screen] ${campaign}/${inst.id} connected`);
 
@@ -841,6 +874,9 @@ function handleScreen(ws, campaign, instanceId) {
   ws.on("close", () => {
     clearInterval(pingInterval);
     instances.disconnect(inst, ws);
+    const left = (screensPerIp.get(ip) || 1) - 1;
+    if (left > 0) screensPerIp.set(ip, left);
+    else screensPerIp.delete(ip);
     console.log(`[Screen] ${campaign}/${inst.id} disconnected`);
   });
 }

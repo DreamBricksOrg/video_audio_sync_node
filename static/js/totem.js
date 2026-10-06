@@ -125,12 +125,14 @@ function registerSession() {
         registered = false;
     };
 
-    ws.onclose = () => {
-        console.log("[Totem] WS closed — reconnecting in 3s");
+    ws.onclose = (e) => {
+        // 4029 = screen limit reached: back off instead of hammering the server
+        const delay = e.code === 4029 ? 60000 : 3000;
+        console.log(`[Totem] WS closed (${e.code}) — reconnecting in ${delay / 1000}s`);
         clearInterval(posInterval);
         registered = false;
         screenWs = null;
-        setTimeout(registerSession, 3000);
+        setTimeout(registerSession, delay);
     };
 }
 
