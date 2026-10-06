@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "split": "node scripts/split-media.js"
+    "split": "node scripts/split-media.js",
+    "test": "node --test \"tests/**/*.test.js\""
   },
   "dependencies": {
     "body-parser": "^2.2.2",

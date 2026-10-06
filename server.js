@@ -68,7 +68,8 @@ const MIME_TYPES = {
 };
 
 // ── In-memory stores & Config ───────────────────────────────────────────────
-const TOTEMS_FILE = path.join(__dirname, "totems.json");
+// TOTEMS_FILE lets tests (and deployments) keep the config elsewhere
+const TOTEMS_FILE = process.env.TOTEMS_FILE || path.join(__dirname, "totems.json");
 const sessions = {};
 const screenClients = {};   // { screenId: ws } — one totem per screen
 const mobileClients = {};   // { screenId: Set<ws> }
