@@ -11,6 +11,7 @@
     "load-test": "node scripts/load-test.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
     "body-parser": "^2.2.2",
     "express": "^4.21.0",
     "swagger-ui-express": "^5.0.1",
