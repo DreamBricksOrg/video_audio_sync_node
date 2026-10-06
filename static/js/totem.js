@@ -7,6 +7,12 @@ const SHOW_QR   = !["false", "0", "no", "off"].includes((urlParams.get('showqr')
 if ((urlParams.get('fit') || "").toLowerCase() === "contain") {
     document.querySelector(".totem-container").classList.add("fit-contain");
 }
+// ?listen=auto|on|off — "Ouvir aqui" instead of the QR. auto = touch screen up
+// to 820px wide (a visitor's phone); a 1080px physical totem keeps the QR.
+const LISTEN_PARAM = (urlParams.get('listen') || 'auto').toLowerCase();
+const LISTEN_MODE = LISTEN_PARAM === 'on' ||
+    (LISTEN_PARAM === 'auto' && matchMedia('(pointer: coarse)').matches && matchMedia('(max-width: 820px)').matches);
+if (LISTEN_MODE) document.querySelector(".totem-container").classList.add("listen-mode");
 const API_KEY   = "your-secret-api-key-here";
 const WS_HOST   = location.host;
 const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
@@ -61,6 +67,55 @@ video.addEventListener("seeked", () => {
     }
 });
 
+// ── "Ouvir aqui": play the campaign audio on this device ───
+const listenBtn  = document.getElementById("listenBtn");
+const localAudio = new Audio();
+localAudio.preload = "auto";
+let audioUrl  = null;
+let listening = false;
+let audioSyncTimer = null;
+
+function setAudioUrl(url) {
+    const changed = (url || null) !== audioUrl;
+    audioUrl = url || null;
+    listenBtn.hidden = !(LISTEN_MODE && audioUrl);
+    if (changed && listening) stopListening();
+}
+
+function updateListenBtn() {
+    listenBtn.querySelector("span").textContent = listening ? "Parar áudio" : "Ouvir aqui";
+    listenBtn.classList.toggle("active", listening);
+}
+
+async function startListening() {
+    if (!audioUrl) return;
+    if (localAudio.getAttribute("src") !== audioUrl) localAudio.src = audioUrl;
+    try {
+        await localAudio.play(); // runs inside the tap, so the browser allows it
+    } catch (err) {
+        console.error("[Totem] Local audio failed", err);
+        return;
+    }
+    localAudio.currentTime = video.currentTime;
+    listening = true;
+    updateListenBtn();
+    // Keep the audio on the video's timeline (loops, stalls, seeks)
+    audioSyncTimer = setInterval(() => {
+        if (LocalAudio.shouldResync(localAudio.currentTime, video.currentTime, video.duration || 0)) {
+            localAudio.currentTime = video.currentTime;
+        }
+    }, 1000);
+}
+
+function stopListening() {
+    listening = false;
+    localAudio.pause();
+    clearInterval(audioSyncTimer);
+    updateListenBtn();
+}
+
+listenBtn.addEventListener("click", () => (listening ? stopListening() : startListening()));
+
 // ── Register session (WS stays open for notifications) ─
 let screenWs = null;
 
@@ -107,6 +162,7 @@ function registerSession() {
                 params.set("screen", data.screen);
                 location.replace(`${location.pathname}?${params}`);
             } else if (data.type === "change_video") {
+                setAudioUrl(data.audio);
                 // Prevent infinite loop by checking if we are already playing this video
                 if (!video.src.includes(data.filename)) {
                     console.log(`[Totem] Changing video to: ${data.filename}`);

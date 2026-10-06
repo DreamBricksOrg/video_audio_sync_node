@@ -122,3 +122,32 @@ a.qr-overlay:focus-visible { outline: none; box-shadow: var(--shadow-lg), var(--
         transform: none;
     }
 }
+
+/* ── "Ouvir aqui" (listen on this device) ───────────── */
+.listen-btn {
+    position: absolute;
+    bottom: var(--qr-bottom);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 11;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.8em 1.4em;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: var(--db-blue-500);
+    color: var(--text-on-brand);
+    font-family: var(--font-body);
+    font-size: clamp(14px, 4.2vmin, 22px);
+    font-weight: var(--weight-semibold);
+    box-shadow: var(--shadow-lg);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.listen-btn svg { width: 1.2em; height: 1.2em; }
+.listen-btn.active { background: var(--db-blue-900); }
+.listen-btn[hidden] { display: none; }
+
+/* In listen mode the QR card is not shown */
+.listen-mode .qr-overlay { display: none; }

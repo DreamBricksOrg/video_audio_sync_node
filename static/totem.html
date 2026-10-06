@@ -25,12 +25,21 @@
                 Escaneie para ouvir o áudio
             </div>
         </a>
+
+        <!-- "Ouvir aqui": visitor on a phone plays the audio on this device -->
+        <button class="listen-btn" id="listenBtn" type="button" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>
+            </svg>
+            <span>Ouvir aqui</span>
+        </button>
     </div>
 
     <!-- QR Code library -->
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
-    <!-- Application script -->
+    <!-- Application scripts -->
+    <script src="/static/js/local-audio.js"></script>
     <script src="/static/js/totem.js"></script>
 </body>
 </html>
