@@ -30,6 +30,7 @@ const bodyParser = require("body-parser");
 const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
 const { splitMedia, INPUT_EXTS: SPLIT_INPUT_EXTS } = require("./lib/media-splitter");
+const { createInstanceRegistry } = require("./lib/instances");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 // Load .env (Node >= 20.12 built-in); real env vars take precedence
@@ -70,10 +71,17 @@ const MIME_TYPES = {
 // ── In-memory stores & Config ───────────────────────────────────────────────
 // TOTEMS_FILE lets tests (and deployments) keep the config elsewhere
 const TOTEMS_FILE = process.env.TOTEMS_FILE || path.join(__dirname, "totems.json");
-const sessions = {};
-const screenClients = {};   // { screenId: ws } — one totem per screen
-const mobileClients = {};   // { screenId: Set<ws> }
-const driftClients = {};    // { screenId: Set<ws> }
+// Every screen playing a campaign (totem or iframe) is an instance with its own session
+const instances = createInstanceRegistry();
+// Forget screens that closed more than 2 minutes ago (and have no phones listening)
+setInterval(() => instances.sweep(), 30000).unref();
+
+// Sends a message to every open screen of a campaign; returns how many got it
+function sendToCampaign(campaign, message) {
+  const online = instances.online(campaign);
+  online.forEach(inst => safeSend(inst.ws, message));
+  return online.length;
+}
 
 // ── Safe WS send ────────────────────────────────────────────────────────────
 function safeSend(ws, data) {
@@ -791,92 +799,51 @@ const wss = new WebSocketServer({ noServer: true });
 // ── WS route matching ───────────────────────────────────────────────────────
 server.on("upgrade", (req, socket, head) => {
   const parsed = url.parse(req.url, true);
-  const pathname = parsed.pathname;
+  const match = parsed.pathname.match(/^\/ws\/(screen|mobile|drift)\/([^/]+)$/);
+  if (!match) return socket.destroy();
 
-  let match;
-
-  match = pathname.match(/^\/ws\/screen\/([^/]+)$/);
-  if (match) {
-    req._wsRoute = "screen";
-    req._screenId = match[1];
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
-    return;
-  }
-
-  match = pathname.match(/^\/ws\/mobile\/([^/]+)$/);
-  if (match) {
-    req._wsRoute = "mobile";
-    req._screenId = match[1];
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
-    return;
-  }
-
-  match = pathname.match(/^\/ws\/drift\/([^/]+)$/);
-  if (match) {
-    req._wsRoute = "drift";
-    req._screenId = match[1];
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
-    return;
-  }
-
-  socket.destroy();
+  req._wsRoute = match[1];
+  req._screenId = match[2];                         // campaign (totem ID)
+  req._instanceId = String(parsed.query.instance || "");
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
 });
 
 // ── WS connection handler ───────────────────────────────────────────────────
 wss.on("connection", (ws, req) => {
   const route = req._wsRoute;
-  const screenId = req._screenId;
+  const campaign = req._screenId;
+  const instanceId = req._instanceId;
 
-  if (route === "screen") handleScreen(ws, screenId);
-  else if (route === "mobile") handleMobile(ws, screenId);
-  else if (route === "drift") handleDrift(ws, screenId);
+  if (route === "screen") handleScreen(ws, campaign, instanceId);
+  else if (route === "mobile") handleMobile(ws, campaign, instanceId);
+  else if (route === "drift") handleDrift(ws, campaign, instanceId);
 });
 
-// ── /ws/screen/:screenId — Totem registration (stays open for notifications) ─
-function handleScreen(ws, screenId) {
-  console.log(`[Screen] ${screenId} connected`);
-
-  // Track this screen's WS so we can push events to the totem
-  screenClients[screenId] = ws;
+// ── /ws/screen/:campaign?instance=ID — a screen playing the campaign ────────
+// Stays open: receives change_video / change_screen / mobile_connected.
+function handleScreen(ws, campaign, instanceId) {
+  const inst = instances.register(campaign, instanceId, ws);
+  console.log(`[Screen] ${campaign}/${inst.id} connected`);
 
   ws.on("message", (raw) => {
     try {
       const data = JSON.parse(raw);
 
       if (data.type === "position_update") {
-        // Periodic position update from totem — recalculate start_time
-        // using SERVER clock so all time references stay in the same domain
-        const session = sessions[screenId];
-        if (session) {
-          const serverNow = Date.now() / 1000;
-          session.start_time = serverNow - data.current_time;
-          console.log(`[Screen] ${screenId} position update: ${data.current_time.toFixed(2)}s → start_time recalc`);
-        }
+        // Periodic position: recalculate start_time with the SERVER clock
+        instances.updatePosition(inst, data.current_time);
         return;
       }
 
-      // Initial registration: totem sends current_time (video.currentTime),
-      // server computes start_time using its OWN clock
-      const serverNow = Date.now() / 1000;
-      const currentTime = data.current_time || 0;
+      // Registration: the screen sends its video.currentTime
+      const session = instances.startSession(inst, data);
+      console.log(`[Screen] Session ${campaign}/${inst.id} — ${session.duration}s (pos: ${(Number(data.current_time) || 0).toFixed(2)}s)`);
+      safeSend(ws, { type: "session_created", screen_id: campaign, instance: inst.id });
 
-      sessions[screenId] = {
-        start_time: serverNow - currentTime,
-        duration: data.duration,
-        mode: data.mode || "sync",
-        drift_enabled: data.drift_enabled || false,
-        created_at: serverNow,
-      };
-
-      console.log(`[Screen] Session: ${screenId} — ${sessions[screenId].duration}s (pos: ${currentTime.toFixed(2)}s)`);
-      safeSend(ws, { type: "session_created", screen_id: screenId });
-      
-      // On fresh connection, tell totem what video to play
-      if (totemsConf[screenId] && totemsConf[screenId].video) {
-        safeSend(ws, { type: "change_video", filename: totemsConf[screenId].video });
+      // Tell the screen which video to play
+      if (totemsConf[campaign] && totemsConf[campaign].video) {
+        safeSend(ws, { type: "change_video", filename: totemsConf[campaign].video });
       }
-
-      // WS stays open to receive notifications (e.g. mobile_connected)
     } catch (err) {
       safeSend(ws, { type: "error", detail: err.message });
     }
@@ -891,91 +858,64 @@ function handleScreen(ws, screenId) {
   ws.on("error", () => {});
   ws.on("close", () => {
     clearInterval(pingInterval);
-    if (screenClients[screenId] === ws) delete screenClients[screenId];
-    console.log(`[Screen] ${screenId} disconnected`);
+    instances.disconnect(inst, ws);
+    console.log(`[Screen] ${campaign}/${inst.id} disconnected`);
   });
 }
 
-// ── /ws/mobile/:screenId — Mobile sync (fire-and-close) ─────────────────────
-function handleMobile(ws, screenId) {
-  // Track client
-  if (!mobileClients[screenId]) mobileClients[screenId] = new Set();
-
-  // Enforce max connections
-  if (mobileClients[screenId].size >= MAX_MOBILE_PER_SCREEN) {
-    safeSend(ws, { type: "error", detail: "Too many connections" });
-    ws.close(4029, "Too many connections");
-    return;
-  }
-
-  mobileClients[screenId].add(ws);
-
-  const session = sessions[screenId];
-
-  if (!session) {
+// ── /ws/mobile/:campaign?instance=ID — phone sync (fire-and-close) ──────────
+function handleMobile(ws, campaign, instanceId) {
+  const inst = instances.resolve(campaign, instanceId);
+  if (!inst) {
     safeSend(ws, { type: "error", detail: "Session not found" });
     ws.close(4004, "Session not found");
-    mobileClients[screenId].delete(ws);
     return;
   }
 
-  // Send sync payload — NEVER send current_position
-  const totemAudio = totemsConf[screenId] && totemsConf[screenId].audio 
-    ? `/media/${totemsConf[screenId].audio}` 
-    : "/media/ivete_audio.mp3"; // Fallback just in case
+  const conf = totemsConf[campaign];
+  const audio = conf && conf.audio ? `/media/${conf.audio}` : "/media/ivete_audio.mp3"; // fallback
 
+  // Send sync payload — NEVER send current_position
   safeSend(ws, {
     type: "sync",
-    start_time: session.start_time,
-    duration: session.duration,
+    instance: inst.id,               // phone uses it for the drift socket
+    start_time: inst.session.start_time,
+    duration: inst.session.duration,
     server_time: Date.now() / 1000,
-    drift_enabled: session.drift_enabled,
-    audio: totemAudio,
-    promo: promoFor(screenId),
+    drift_enabled: inst.session.drift_enabled,
+    audio,
+    promo: promoFor(campaign),
   });
 
-  // Notify the totem that a mobile connected
-  const screenWs = screenClients[screenId];
-  if (screenWs && screenWs.readyState === 1) {
-    safeSend(screenWs, { type: "mobile_connected" });
-  }
+  // Only the scanned screen hides its QR
+  if (inst.ws) safeSend(inst.ws, { type: "mobile_connected" });
 
-  // Close immediately after sending — no need to keep open
   ws.close(1000, "Sync delivered");
-
-  const cleanup = () => {
-    if (mobileClients[screenId]) {
-      mobileClients[screenId].delete(ws);
-      if (mobileClients[screenId].size === 0) delete mobileClients[screenId];
-    }
-  };
-
-  ws.on("error", cleanup);
-  ws.on("close", cleanup);
+  ws.on("error", () => {});
 }
 
-// ── /ws/drift/:screenId — Drift correction ──────────────────────────────────
-function handleDrift(ws, screenId) {
-  // Track client
-  if (!driftClients[screenId]) driftClients[screenId] = new Set();
-
-  // Enforce max
-  if (driftClients[screenId].size >= MAX_MOBILE_PER_SCREEN) {
+// ── /ws/drift/:campaign?instance=ID — drift correction for one phone ───────
+function handleDrift(ws, campaign, instanceId) {
+  const inst = instances.resolve(campaign, instanceId);
+  if (!inst) {
+    safeSend(ws, { type: "error", detail: "Session not found" });
+    ws.close(4004, "Session not found");
+    return;
+  }
+  if (inst.drifts.size >= MAX_MOBILE_PER_SCREEN) {
     safeSend(ws, { type: "error", detail: "Too many drift connections" });
     ws.close(4029, "Too many connections");
     return;
   }
 
-  driftClients[screenId].add(ws);
+  inst.drifts.add(ws);
 
-  // Drift check interval
   const interval = setInterval(() => {
-    const session = sessions[screenId];
+    const session = inst.session;
     if (!session || ws.readyState !== 1) {
       clearInterval(interval);
       return;
     }
-
     const now = Date.now() / 1000;
     const expectedPosition =
       ((now - session.start_time) % session.duration + session.duration) % session.duration;
@@ -993,11 +933,8 @@ function handleDrift(ws, screenId) {
   ws.on("message", (raw) => {
     try {
       const data = JSON.parse(raw);
-      if (data.type === "position_report") {
-        const session = sessions[screenId];
-        if (!session) return;
-
-        const correction = computeCorrection(data.position, session.start_time, session.duration);
+      if (data.type === "position_report" && inst.session) {
+        const correction = computeCorrection(data.position, inst.session.start_time, inst.session.duration);
         safeSend(ws, correction || { type: "drift_ok" });
       }
     } catch (_) {}
@@ -1005,12 +942,8 @@ function handleDrift(ws, screenId) {
 
   const cleanup = () => {
     clearInterval(interval);
-    if (driftClients[screenId]) {
-      driftClients[screenId].delete(ws);
-      if (driftClients[screenId].size === 0) delete driftClients[screenId];
-    }
+    inst.drifts.delete(ws);
   };
-
   ws.on("error", cleanup);
   ws.on("close", cleanup);
 }
