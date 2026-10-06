@@ -183,7 +183,7 @@ function registerSession() {
                 if (!video.src.includes(data.filename)) {
                     console.log(`[Totem] Changing video to: ${data.filename}`);
                     const wasPlaying = !video.paused;
-                    video.src = `/media/${data.filename}`;
+                    video.src = data.url || `/media/${data.filename}`;
                     video.load();
                     if (wasPlaying) {
                         video.play().catch(console.error);

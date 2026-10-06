@@ -32,6 +32,7 @@ const YAML = require("yamljs");
 const { splitMedia, INPUT_EXTS: SPLIT_INPUT_EXTS } = require("./lib/media-splitter");
 const { createInstanceRegistry } = require("./lib/instances");
 const { writeJsonAtomic } = require("./lib/atomic-write");
+const { createMediaUrl } = require("./lib/media-url");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 // Load .env (Node >= 20.12 built-in); real env vars take precedence
@@ -41,6 +42,8 @@ try {
 
 const PORT = process.env.PORT || 8001;
 const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
+// Optional CDN/bucket for videos and audios (S3 or CloudFront; same filenames as assets/)
+const mediaUrl = createMediaUrl(process.env.MEDIA_BASE_URL);
 const DRIFT_THRESHOLD_MS = 80;
 const DRIFT_INTERVAL_MS = 2000;
 const MAX_MOBILE_PER_SCREEN = 50;
@@ -95,7 +98,8 @@ function videoMessage(campaign) {
   return {
     type: "change_video",
     filename: conf.video || "",
-    audio: conf.audio ? `/media/${conf.audio}` : null,
+    url: mediaUrl(conf.video),
+    audio: mediaUrl(conf.audio),
   };
 }
 
@@ -918,7 +922,7 @@ function handleMobile(ws, campaign, instanceId) {
   }
 
   const conf = totemsConf[campaign];
-  const audio = conf && conf.audio ? `/media/${conf.audio}` : "/media/ivete_audio.mp3"; // fallback
+  const audio = mediaUrl(conf && conf.audio) || mediaUrl("ivete_audio.mp3"); // fallback
 
   // Send sync payload — NEVER send current_position
   safeSend(ws, {

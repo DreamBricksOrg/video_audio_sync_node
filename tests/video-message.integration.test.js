@@ -20,6 +20,16 @@ test("change_video on registration includes the campaign audio", async () => {
   }
 });
 
+test("without MEDIA_BASE_URL the video url is local", async () => {
+  const s = await registerScreen(server.wsBase, "camp", { instance: "vm-local" });
+  try {
+    const msg = await s.next("change_video");
+    assert.equal(msg.url, "/media/camp_video.mp4");
+  } finally {
+    s.close();
+  }
+});
+
 test("changing only the audio in the admin notifies open screens", async () => {
   const cookie = await server.login();
   const s = await registerScreen(server.wsBase, "camp", { instance: "vm-b" });
@@ -37,4 +47,31 @@ test("changing only the audio in the admin notifies open screens", async () => {
   } finally {
     s.close();
   }
+});
+
+const { describe } = require("node:test");
+const { mobileSync } = require("./helpers/ws");
+
+describe("with MEDIA_BASE_URL", () => {
+  let cdnServer;
+  before(async () => {
+    cdnServer = await startServer({
+      totems: { camp: { video: "camp_video.mp4", audio: "camp_audio.mp3" } },
+      env: { MEDIA_BASE_URL: "https://cdn.exemplo.com/audiosync" },
+    });
+  });
+  after(() => cdnServer.stop());
+
+  test("screens and phones get CDN URLs", async () => {
+    const s = await registerScreen(cdnServer.wsBase, "camp", { instance: "cdn-a" });
+    try {
+      const msg = await s.next("change_video");
+      assert.equal(msg.url, "https://cdn.exemplo.com/audiosync/camp_video.mp4");
+      assert.equal(msg.audio, "https://cdn.exemplo.com/audiosync/camp_audio.mp3");
+      const { sync } = await mobileSync(cdnServer.wsBase, "camp", "cdn-a");
+      assert.equal(sync.audio, "https://cdn.exemplo.com/audiosync/camp_audio.mp3");
+    } finally {
+      s.close();
+    }
+  });
 });
