@@ -521,8 +521,7 @@ app.patch("/api/media/:filename", (req, res) => {
   updated.forEach(id => {
     if (totemsConf[id].video === oldName) {
       totemsConf[id].video = newName;
-      const ws = screenClients[id];
-      if (ws) safeSend(ws, { type: "change_video", filename: newName });
+      sendToCampaign(id, { type: "change_video", filename: newName });
     }
     if (totemsConf[id].audio === oldName) totemsConf[id].audio = newName;
   });
@@ -556,31 +555,22 @@ app.delete("/api/media/:filename", (req, res) => {
 
 // Get totems list & states
 app.get("/api/totems", (req, res) => {
-  // Merge live status with configuration
-  const result = [];
-  
-  // Create a combined list of all known totem IDs
-  const allIds = new Set([
-      ...Object.keys(totemsConf),
-      ...Object.keys(screenClients)
-  ]);
-  
-  allIds.forEach(id => {
-      const isOnline = !!screenClients[id];
-      const mobileCount = mobileClients[id] ? mobileClients[id].size : 0;
-      
-      result.push({
-          id,
-          configured: !!totemsConf[id], // false = online but never saved in the admin
-          is_online: isOnline,
-          mobile_count: mobileCount,
-          video: totemsConf[id] ? totemsConf[id].video : null,
-          audio: totemsConf[id] ? totemsConf[id].audio : null,
-          promo: promoFor(id),
-      });
-  });
-  
-  res.json(result);
+  // Saved campaigns + campaigns with open screens that were never saved
+  const allIds = new Set([...Object.keys(totemsConf), ...instances.campaignsOnline()]);
+
+  res.json([...allIds].map(id => {
+    const { instances: openScreens, mobiles } = instances.stats(id);
+    return {
+      id,
+      configured: !!totemsConf[id], // false = online but never saved in the admin
+      is_online: openScreens > 0,
+      instances: openScreens,       // screens/iframes playing right now
+      mobile_count: mobiles,        // phones listening (drift sockets)
+      video: totemsConf[id] ? totemsConf[id].video : null,
+      audio: totemsConf[id] ? totemsConf[id].audio : null,
+      promo: promoFor(id),
+    };
+  }));
 });
 
 // Promo options for the admin editor (icon list, limits, defaults)
@@ -617,11 +607,8 @@ app.post("/api/totem/:id/config", (req, res) => {
   
   console.log(`[Admin] Assigned video ${video} and audio ${audio} to totem ${id}`);
   
-  // Broadcast video change immediately if totem is online
-  const ws = screenClients[id];
-  if (ws && ws.readyState === 1) {
-    safeSend(ws, { type: "change_video", filename: video });
-  }
+  // Every open screen of this campaign switches video right away
+  sendToCampaign(id, { type: "change_video", filename: video });
   
   res.json({ success: true, id, video, audio });
 });
@@ -651,9 +638,8 @@ app.post("/api/totems", (req, res) => {
   saveTotemsConf(totemsConf);
   console.log(`[Admin] Created totem ${id}`);
 
-  // A totem already online under this ID picks up its video right away
-  const ws = screenClients[id];
-  if (ws && video) safeSend(ws, { type: "change_video", filename: video });
+  // Screens already open under this ID pick up the video right away
+  if (video) sendToCampaign(id, { type: "change_video", filename: video });
 
   res.status(201).json({ success: true, id, video, audio });
 });
@@ -683,14 +669,11 @@ app.patch("/api/totem/:id", (req, res) => {
   totemsConf[newId] = conf;
   saveTotemsConf(totemsConf);
 
-  const ws = screenClients[oldId];
-  if (ws) {
-    if (newId !== oldId) {
-      // The totem page reloads itself with ?screen=<newId>
-      safeSend(ws, { type: "change_screen", screen: newId });
-    } else if (videoChanged && conf.video) {
-      safeSend(ws, { type: "change_video", filename: conf.video });
-    }
+  if (newId !== oldId) {
+    // Every open screen reloads itself with ?screen=<newId>
+    sendToCampaign(oldId, { type: "change_screen", screen: newId });
+  } else if (videoChanged && conf.video) {
+    sendToCampaign(oldId, { type: "change_video", filename: conf.video });
   }
 
   console.log(`[Admin] Updated totem ${oldId}${newId !== oldId ? ` → ${newId}` : ""}`);
@@ -705,19 +688,18 @@ app.delete("/api/totem/:id", (req, res) => {
   delete totemsConf[id];
   saveTotemsConf(totemsConf);
   console.log(`[Admin] Deleted totem ${id}`);
-  res.json({ success: true, id, still_online: !!screenClients[id] });
+  res.json({ success: true, id, still_online: instances.online(id).length > 0 });
 });
 
 // ── Health check ────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => {
-  const mobileCount = Object.values(mobileClients).reduce((sum, s) => sum + s.size, 0);
-  const driftCount = Object.values(driftClients).reduce((sum, s) => sum + s.size, 0);
+  const t = instances.totals();
   res.json({
     status: "ok",
     server_time: Date.now() / 1000,
-    sessions: Object.keys(sessions).length,
-    mobile_clients: mobileCount,
-    drift_clients: driftCount,
+    sessions: t.instances,      // instances kept in memory (open + recently closed)
+    screens_online: t.online,
+    mobile_clients: t.mobiles,
     uptime_s: Math.round(process.uptime()),
   });
 });
