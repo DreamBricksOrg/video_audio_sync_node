@@ -114,11 +114,25 @@ function safeSend(ws, data) {
 const app = express();
 const server = http.createServer(app);
 
-// CORS
+// CORS — off by default. Pages, iframes and phones all talk to this same
+// origin, so nothing needs it. CORS_ORIGINS (comma-separated, or "*") opens
+// only the read-only public routes; the admin API is never exposed.
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
+const CORS_PUBLIC_PATHS = [/^\/media\//, /^\/health$/];
+
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
+  const origin = req.headers.origin;
+  const isPublic = CORS_PUBLIC_PATHS.some(re => re.test(req.path));
+  if (!origin || !isPublic || !CORS_ORIGINS.length) return next();
+
+  res.vary("Origin");
+  if (!CORS_ORIGINS.includes("*") && !CORS_ORIGINS.includes(origin)) return next();
+
+  res.header("Access-Control-Allow-Origin", origin);
+  res.header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Range");
+  res.header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, ETag");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
 
