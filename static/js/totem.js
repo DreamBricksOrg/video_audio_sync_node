@@ -99,11 +99,14 @@ async function startListening() {
     localAudio.currentTime = video.currentTime;
     listening = true;
     updateListenBtn();
-    // Keep the audio on the video's timeline (loops, stalls, seeks)
+    // Keep the audio on the video's timeline (loops, stalls, seeks) and
+    // playing whenever the video is playing
     audioSyncTimer = setInterval(() => {
+        if (video.paused) return;
         if (LocalAudio.shouldResync(localAudio.currentTime, video.currentTime, video.duration || 0)) {
             localAudio.currentTime = video.currentTime;
         }
+        if (localAudio.paused) localAudio.play().catch(() => {});
     }, 1000);
 }
 
@@ -115,6 +118,18 @@ function stopListening() {
 }
 
 listenBtn.addEventListener("click", () => (listening ? stopListening() : startListening()));
+
+// The audio follows the video: when the video pauses or waits for data
+// (buffering, background tab), pause the audio too instead of running ahead.
+// ("stalled" is not used: it fires while the video keeps playing.)
+["pause", "waiting"].forEach(evt => video.addEventListener(evt, () => {
+    if (listening) localAudio.pause();
+}));
+video.addEventListener("playing", () => {
+    if (!listening) return;
+    localAudio.currentTime = video.currentTime;
+    localAudio.play().catch(err => console.error("[Totem] Local audio resume failed", err));
+});
 
 // ── Register session (WS stays open for notifications) ─
 let screenWs = null;
