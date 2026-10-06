@@ -1,6 +1,9 @@
 // ── Config ─────────────────────────────────────────────
 const params    = new URLSearchParams(location.search);
 const SCREEN_ID = params.get("screen") || "totem1";
+// Screen this phone follows (from the QR). Empty = legacy QR → server picks the newest screen.
+const INSTANCE_ID = params.get("instance") || "";
+const instanceQuery = id => (id ? `?instance=${encodeURIComponent(id)}` : "");
 const WS_HOST   = location.host;
 const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
 
@@ -208,7 +211,7 @@ tapOverlay.addEventListener("click", () => {
 
 // ── Connect to mobile WS ──────────────────────────────
 function connectSync() {
-    const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/mobile/${SCREEN_ID}`);
+    const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/mobile/${SCREEN_ID}${instanceQuery(INSTANCE_ID)}`);
 
     ws.onmessage = (e) => {
         const data = JSON.parse(e.data);
@@ -246,7 +249,8 @@ function connectSync() {
 function startDriftConnection() {
     if (!syncData || !syncData.drift_enabled) return;
 
-    driftWs = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/drift/${SCREEN_ID}`);
+    // Use the instance the server actually synced us to (matters for legacy QRs)
+    driftWs = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/drift/${SCREEN_ID}${instanceQuery(syncData.instance || INSTANCE_ID)}`);
 
     driftWs.onmessage = (e) => {
         const data = JSON.parse(e.data);
