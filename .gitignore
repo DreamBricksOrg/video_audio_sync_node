@@ -18,10 +18,11 @@ Desktop.ini
 *.log
 npm-debug.log*
 
-# Media files (large)
+# Media files (large) — the library lives in S3 (or a local assets/ folder, never in git)
 media/*.mp4
 media/*.mp3
 media/*.wav
+assets/
 
 # Agent config
 .agent/
