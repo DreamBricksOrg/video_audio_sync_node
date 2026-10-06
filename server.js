@@ -88,6 +88,16 @@ function sendToCampaign(campaign, message) {
   return online.length;
 }
 
+// What a screen needs to play a campaign: the video, plus the audio for "Ouvir aqui"
+function videoMessage(campaign) {
+  const conf = totemsConf[campaign] || {};
+  return {
+    type: "change_video",
+    filename: conf.video || "",
+    audio: conf.audio ? `/media/${conf.audio}` : null,
+  };
+}
+
 // ── Safe WS send ────────────────────────────────────────────────────────────
 function safeSend(ws, data) {
   try {
@@ -524,13 +534,12 @@ app.patch("/api/media/:filename", (req, res) => {
   // Keep totem configs pointing at the file under its new name
   const updated = totemsUsing(oldName);
   updated.forEach(id => {
-    if (totemsConf[id].video === oldName) {
-      totemsConf[id].video = newName;
-      sendToCampaign(id, { type: "change_video", filename: newName });
-    }
+    if (totemsConf[id].video === oldName) totemsConf[id].video = newName;
     if (totemsConf[id].audio === oldName) totemsConf[id].audio = newName;
   });
   if (updated.length) saveTotemsConf(totemsConf);
+  // After the config is updated, so the message carries the new names
+  updated.forEach(id => sendToCampaign(id, videoMessage(id)));
 
   console.log(`[Media] Renamed ${oldName} → ${newName}${updated.length ? ` (totems: ${updated.join(", ")})` : ""}`);
   res.json({ success: true, filename: newName, updated_totems: updated });
@@ -613,7 +622,7 @@ app.post("/api/totem/:id/config", (req, res) => {
   console.log(`[Admin] Assigned video ${video} and audio ${audio} to totem ${id}`);
   
   // Every open screen of this campaign switches video right away
-  sendToCampaign(id, { type: "change_video", filename: video });
+  sendToCampaign(id, videoMessage(id));
   
   res.json({ success: true, id, video, audio });
 });
@@ -644,7 +653,7 @@ app.post("/api/totems", (req, res) => {
   console.log(`[Admin] Created totem ${id}`);
 
   // Screens already open under this ID pick up the video right away
-  if (video) sendToCampaign(id, { type: "change_video", filename: video });
+  if (video) sendToCampaign(id, videoMessage(id));
 
   res.status(201).json({ success: true, id, video, audio });
 });
@@ -669,7 +678,7 @@ app.patch("/api/totem/:id", (req, res) => {
   const mediaError = validateTotemMedia(body.video, body.audio);
   if (mediaError) return res.status(400).json({ error: mediaError });
 
-  const videoChanged = conf.video !== totemsConf[oldId].video;
+  const mediaChanged = conf.video !== totemsConf[oldId].video || conf.audio !== totemsConf[oldId].audio;
   if (newId !== oldId) delete totemsConf[oldId];
   totemsConf[newId] = conf;
   saveTotemsConf(totemsConf);
@@ -677,8 +686,8 @@ app.patch("/api/totem/:id", (req, res) => {
   if (newId !== oldId) {
     // Every open screen reloads itself with ?screen=<newId>
     sendToCampaign(oldId, { type: "change_screen", screen: newId });
-  } else if (videoChanged && conf.video) {
-    sendToCampaign(oldId, { type: "change_video", filename: conf.video });
+  } else if (mediaChanged && conf.video) {
+    sendToCampaign(oldId, videoMessage(oldId));
   }
 
   console.log(`[Admin] Updated totem ${oldId}${newId !== oldId ? ` → ${newId}` : ""}`);
@@ -857,7 +866,7 @@ function handleScreen(ws, campaign, instanceId, ip) {
 
       // Tell the screen which video to play
       if (totemsConf[campaign] && totemsConf[campaign].video) {
-        safeSend(ws, { type: "change_video", filename: totemsConf[campaign].video });
+        safeSend(ws, videoMessage(campaign));
       }
     } catch (err) {
       safeSend(ws, { type: "error", detail: err.message });
