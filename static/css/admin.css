@@ -301,6 +301,12 @@ html, body {
     .link-row .link-url { grid-column: 1 / -1; order: 1; }
 }
 
+/* ── Embed modal ── */
+.embed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.check-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.code-output { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.5; resize: none; }
+@media (max-width: 520px) { .embed-grid { grid-template-columns: 1fr; } }
+
 /* ── Media library ── */
 .media-section {
     margin-top: var(--space-12);

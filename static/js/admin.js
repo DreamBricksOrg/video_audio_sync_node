@@ -133,6 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="card-header-actions">
                         <div class="status-pill"><span class="dot"></span><span class="status-label"></span></div>
                         ${totem.configured ? `
+                        <button type="button" class="icon-btn embed-btn" title="Incorporar em um site" aria-label="Incorporar ${id}"><i data-lucide="code"></i></button>
                         <button type="button" class="icon-btn edit-btn" title="Editar totem" aria-label="Editar ${id}"><i data-lucide="pencil"></i></button>
                         <button type="button" class="icon-btn danger delete-btn" title="Excluir totem" aria-label="Excluir ${id}"><i data-lucide="trash-2"></i></button>
                         ` : ''}
@@ -171,6 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
             card.querySelector('.link-btn').addEventListener('click', () => handleGenerateLink(totem.id));
             card.querySelector('.promo-btn').addEventListener('click', () => openPromoEditor(totem.id));
             if (totem.configured) {
+                card.querySelector('.embed-btn').addEventListener('click', () => openEmbedEditor(totem.id));
                 card.querySelector('.edit-btn').addEventListener('click', () => openTotemEditor(totem.id));
                 card.querySelector('.delete-btn').addEventListener('click', () => deleteTotem(totem.id));
             }
@@ -658,6 +660,73 @@ document.addEventListener('DOMContentLoaded', () => {
 
     addTotemBtn.addEventListener('click', () => openTotemEditor());
 
+    // ── Embed code modal ───────────────────────────────
+    const embedModal = document.getElementById('embedModal');
+    const embedFields = {
+        width: document.getElementById('embedWidth'),
+        height: document.getElementById('embedHeight'),
+        fit: document.getElementById('embedFit'),
+        listen: document.getElementById('embedListen'),
+        responsive: document.getElementById('embedResponsive'),
+        showQr: document.getElementById('embedShowQr'),
+    };
+    const embedCode = document.getElementById('embedCode');
+    const embedPreview = document.getElementById('embedPreview');
+    const embedCopyBtn = document.getElementById('embedCopyBtn');
+    let embedCampaign = null;
+
+    function embedOptions() {
+        return {
+            origin: location.origin,
+            campaign: embedCampaign,
+            width: embedFields.width.value,
+            height: embedFields.height.value,
+            fit: embedFields.fit.value,
+            listen: embedFields.listen.value,
+            responsive: embedFields.responsive.checked,
+            showQr: embedFields.showQr.checked,
+        };
+    }
+
+    function refreshEmbedCode() {
+        if (!embedCampaign) return;
+        const opts = embedOptions();
+        embedCode.value = EmbedCode.buildEmbedCode(opts);
+        embedPreview.href = EmbedCode.buildEmbedUrl(opts);
+    }
+
+    function openEmbedEditor(campaign) {
+        embedCampaign = campaign;
+        document.getElementById('embedTitle').textContent = `Incorporar em um site — ${campaign}`;
+        refreshEmbedCode();
+        embedModal.classList.remove('fade-out');
+    }
+
+    function closeEmbedEditor() {
+        embedModal.classList.add('fade-out');
+        embedCampaign = null;
+    }
+
+    Object.values(embedFields).forEach(el => el.addEventListener('input', refreshEmbedCode));
+    embedModal.querySelectorAll('[data-close-embed]').forEach(btn => btn.addEventListener('click', closeEmbedEditor));
+    embedModal.addEventListener('click', (e) => { if (e.target === embedModal) closeEmbedEditor(); });
+
+    embedCopyBtn.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(embedCode.value);
+        } catch (_) {
+            // Clipboard API needs https/localhost; fall back to selecting the text
+            embedCode.select();
+            document.execCommand('copy');
+        }
+        embedCopyBtn.innerHTML = '<i data-lucide="check"></i> Copiado';
+        lucide.createIcons();
+        setTimeout(() => {
+            embedCopyBtn.innerHTML = '<i data-lucide="copy"></i> Copiar código';
+            lucide.createIcons();
+        }, 1500);
+    });
+
     // ── Mobile page links editor ───────────────────────
     const promoModal = document.getElementById('promoModal');
     const promoForm = document.getElementById('promoForm');
@@ -827,6 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key !== 'Escape') return;
         if (!promoModal.classList.contains('fade-out')) closePromoEditor();
         if (!totemModal.classList.contains('fade-out')) closeTotemEditor();
+        if (!embedModal.classList.contains('fade-out')) closeEmbedEditor();
         if (!qrModal.classList.contains('fade-out')) qrModal.classList.add('fade-out');
     });
 

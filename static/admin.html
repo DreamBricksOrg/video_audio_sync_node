@@ -139,6 +139,56 @@
         </form>
     </div>
 
+    <!-- Embed code -->
+    <div id="embedModal" class="modal fade-out">
+        <div class="modal-content modal-form" role="dialog" aria-modal="true" aria-labelledby="embedTitle">
+            <button type="button" class="close-btn" data-close-embed aria-label="Fechar"><i data-lucide="x"></i></button>
+            <h2 id="embedTitle">Incorporar em um site</h2>
+            <p class="modal-subtitle">Cada visitante que abrir a página ganha a própria tela, com QR e sincronia próprios.</p>
+
+            <div class="embed-grid">
+                <div class="form-group">
+                    <label for="embedWidth">Largura (px)</label>
+                    <input id="embedWidth" class="text-input" type="number" min="50" max="4000" value="360">
+                </div>
+                <div class="form-group">
+                    <label for="embedHeight">Altura (px)</label>
+                    <input id="embedHeight" class="text-input" type="number" min="50" max="4000" value="640">
+                </div>
+                <div class="form-group">
+                    <label for="embedFit">Ajuste do vídeo</label>
+                    <select id="embedFit" class="custom-select">
+                        <option value="">Preencher (corta as bordas)</option>
+                        <option value="contain">Mostrar inteiro (com faixas)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="embedListen">No celular do visitante</label>
+                    <select id="embedListen" class="custom-select">
+                        <option value="">Automático ("Ouvir aqui" no celular)</option>
+                        <option value="off">Sempre mostrar o QR</option>
+                        <option value="on">Sempre "Ouvir aqui"</option>
+                    </select>
+                </div>
+            </div>
+
+            <label class="check-row"><input type="checkbox" id="embedResponsive" checked> Ocupar a largura do site (mantém a proporção)</label>
+            <label class="check-row"><input type="checkbox" id="embedShowQr" checked> Mostrar o QR Code</label>
+
+            <div class="form-group">
+                <label for="embedCode">Código para colar no site</label>
+                <textarea id="embedCode" class="text-input code-output" rows="5" readonly></textarea>
+            </div>
+
+            <div class="modal-actions">
+                <a id="embedPreview" class="btn btn-ghost" href="#" target="_blank" rel="noopener"><i data-lucide="external-link"></i> Ver página</a>
+                <span class="spacer"></span>
+                <button type="button" class="btn btn-secondary" data-close-embed>Fechar</button>
+                <button type="button" class="btn btn-primary" id="embedCopyBtn"><i data-lucide="copy"></i> Copiar código</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Mobile page links editor -->
     <div id="promoModal" class="modal fade-out">
         <form id="promoForm" class="modal-content modal-form" role="dialog" aria-modal="true" aria-labelledby="promoTitle" novalidate>
@@ -191,6 +241,7 @@
         </form>
     </div>
 
+    <script src="/static/js/embed-code.js"></script>
     <script src="/static/js/admin.js"></script>
 </body>
 </html>
