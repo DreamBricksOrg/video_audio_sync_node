@@ -17,6 +17,7 @@ function usage() {
 
   --out <pasta>   onde salvar (padrão: mesma pasta do arquivo)
   --overwrite     substitui arquivos de saída que já existam
+  --web           gera um vídeo menor, próprio para sites
 
 Gera <nome>_video.<ext> (sem áudio) e <nome>_audio.mp3.`);
 }
@@ -26,11 +27,13 @@ async function main() {
   const files = [];
   let outDir = null;
   let overwrite = false;
+  let web = false;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--help" || a === "-h") return usage();
     if (a === "--overwrite") overwrite = true;
+    else if (a === "--web") web = true;
     else if (a === "--out") outDir = args[++i];
     else files.push(a);
   }
@@ -45,7 +48,7 @@ async function main() {
     const started = Date.now();
     process.stdout.write(`▶ ${file} ... `);
     try {
-      const r = await splitMedia(file, { outDir, overwrite });
+      const r = await splitMedia(file, { outDir, overwrite, web });
       const mb = p => (fs.statSync(p).size / 1024 / 1024).toFixed(1);
       console.log(`ok (${((Date.now() - started) / 1000).toFixed(1)}s)`);
       console.log(`   vídeo: ${path.relative(process.cwd(), r.video)} (${mb(r.video)} MB)`);

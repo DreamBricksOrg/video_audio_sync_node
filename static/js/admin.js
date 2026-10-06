@@ -603,8 +603,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        const web = document.getElementById('splitWeb').checked;
         const splitUrl = overwrite =>
-            `/api/media/split?filename=${encodeURIComponent(file.name)}${overwrite ? '&overwrite=1' : ''}`;
+            `/api/media/split?filename=${encodeURIComponent(file.name)}` +
+            `${overwrite ? '&overwrite=1' : ''}${web ? '&web=1' : ''}`;
         // Once the upload hits 100% the server is still separating the tracks
         const onProgress = pct => (pct < 100 ? item.progress(pct) : item.status('Separando vídeo e áudio…'));
 
@@ -620,7 +622,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (res.status === 201) {
                 item.done(`Separado: ${res.body.video} + ${res.body.audio}` +
-                    (res.body.transcoded ? ' (vídeo convertido para tocar no navegador)' : ''));
+                    (res.body.web ? ' (vídeo otimizado para sites)'
+                        : res.body.transcoded ? ' (vídeo convertido para tocar no navegador)' : ''));
             } else {
                 item.error(res.body.error || `Falha ao separar (${res.status})`);
             }

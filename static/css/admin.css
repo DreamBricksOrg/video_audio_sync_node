@@ -335,6 +335,8 @@ html, body {
     padding: 0 4px; background: var(--surface-sunken); border-radius: 4px;
 }
 .drop-zone-split { border-color: var(--db-blue-300); background: oklch(from var(--db-blue-50) l c h / 0.35); }
+.drop-zone-split { flex-wrap: wrap; }
+.split-option { display: flex; align-items: center; gap: var(--space-2); width: 100%; font-size: var(--text-xs); color: var(--text-primary); cursor: pointer; }
 
 .drop-zone {
     display: flex; align-items: center; justify-content: flex-start; gap: var(--space-4);

@@ -484,12 +484,13 @@ app.post("/api/media/split", (req, res) => {
   streamUploadToTemp(req, res, `${base}${ext}`, async (tmpPath, received) => {
     const started = Date.now();
     try {
-      const result = await splitMedia(tmpPath, { outDir: ASSETS_DIR, baseName: base, overwrite });
+      const web = req.query.web === "1" || req.query.web === "true";
+      const result = await splitMedia(tmpPath, { outDir: ASSETS_DIR, baseName: base, overwrite, web });
       const video = path.basename(result.video);
       const audio = path.basename(result.audio);
       console.log(`[Media] Split ${raw} (${(received / 1024 / 1024).toFixed(1)} MB) → ${video} + ${audio}` +
         `${result.transcoded ? " (video re-encoded)" : ""} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
-      res.status(201).json({ success: true, video, audio, transcoded: result.transcoded, duration: result.duration });
+      res.status(201).json({ success: true, video, audio, transcoded: result.transcoded, web: result.web, duration: result.duration });
     } catch (err) {
       console.error("[Media] Split failed:", err.message);
       const userError = /não tem faixa|não suportado|Já existe/.test(err.message);
