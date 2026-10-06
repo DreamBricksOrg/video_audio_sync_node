@@ -142,7 +142,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <p class="card-note"><i data-lucide="info"></i> Ligado, mas ainda não salvo. Escolha o vídeo e o áudio e clique em Aplicar.</p>`}
                 <div class="card-metrics">
                     <div class="metric">
-                        <span class="metric-label">Celulares conectados</span>
+                        <span class="metric-label">Telas abertas</span>
+                        <span class="metric-value instance-count"></span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Celulares ouvindo</span>
                         <span class="metric-value mobile-count"></span>
                     </div>
                 </div>
@@ -186,6 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
         pill.classList.toggle('offline', !totem.is_online);
         pill.querySelector('.status-label').textContent = totem.is_online ? 'Ao vivo' : 'Desligado';
         card.querySelector('.mobile-count').textContent = totem.mobile_count;
+        card.querySelector('.instance-count').textContent = totem.instances;
     }
 
     async function handleAssignConfig(totemId, card) {
