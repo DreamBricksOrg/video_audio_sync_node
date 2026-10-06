@@ -11,6 +11,9 @@ async function startServer({ totems = {}, env = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "audiosync-test-"));
   const totemsFile = path.join(dir, "totems.json");
   fs.writeFileSync(totemsFile, JSON.stringify(totems, null, 2));
+  // Empty .env: tests must never pick up the developer's real config (S3, CORS, limits…)
+  const envFile = path.join(dir, ".env");
+  fs.writeFileSync(envFile, "");
 
   const port = 20000 + Math.floor(Math.random() * 20000);
   const proc = spawn(process.execPath, ["server.js"], {
@@ -19,6 +22,7 @@ async function startServer({ totems = {}, env = {} } = {}) {
       ...process.env,
       PORT: String(port),
       TOTEMS_FILE: totemsFile,
+      ENV_FILE: envFile,
       ADMIN_USER: "test",
       ADMIN_PASSWORD: "test-pass",
       SESSION_SECRET: "t".repeat(64),

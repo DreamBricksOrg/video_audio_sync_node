@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const MEDIA_EXTS = ['.mp4', '.webm', '.mp3', '.wav', '.ogg'];
     let mediaCache = [];
+    let mediaError = null; // e.g. the S3 bucket could not be listed
     let totemsById = {};
 
     // Session expired / logged out elsewhere → back to the login screen
@@ -67,7 +68,14 @@ document.addEventListener('DOMContentLoaded', () => {
     async function fetchMedia() {
         try {
             const res = await api('/api/media');
-            mediaCache = await res.json();
+            const body = await res.json();
+            if (!res.ok) {
+                mediaError = body.error || `Erro ao listar os arquivos (${res.status})`;
+                renderMedia();
+                return;
+            }
+            mediaError = null;
+            mediaCache = body;
             videosCache = mediaCache.filter(m => m.type === 'video').map(m => m.filename);
             audiosCache = mediaCache.filter(m => m.type === 'audio').map(m => m.filename);
             renderMedia();
@@ -400,10 +408,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderMediaList(listEl, countEl, items) {
         listEl.innerHTML = '';
         document.getElementById(countEl).textContent = items.length;
-        if (items.length === 0) {
+        if (mediaError || items.length === 0) {
             const li = document.createElement('li');
-            li.className = 'empty';
-            li.textContent = 'Nenhum arquivo ainda.';
+            li.className = mediaError ? 'empty media-error' : 'empty';
+            li.textContent = mediaError || 'Nenhum arquivo ainda.';
             listEl.appendChild(li);
             return;
         }
@@ -439,7 +447,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const body = await res.json().catch(() => ({}));
             if (!res.ok) return alert(body.error || `Não foi possível renomear (${res.status})`);
-            warnStorage(body);
             await refreshAll();
         } catch (e) {
             console.error('Rename failed', e);
@@ -474,7 +481,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 method: 'PUT',
                 url: `/api/media/${encodeURIComponent(target.filename)}`,
             }, item.progress);
-            if (res.status === 200) item.finish(`${res.body.filename} substituído`, res.body.storage_error);
+            if (res.status === 200) item.done(`${res.body.filename} substituído`);
             else item.error(res.body.error || `Não foi possível substituir (${res.status})`);
         } catch (e) {
             item.error(e.message);
@@ -491,7 +498,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const who = body.used_by ? ` (${body.used_by.join(', ')})` : '';
                 return alert((body.error || `Não foi possível excluir (${res.status})`) + who);
             }
-            warnStorage(body);
             await refreshAll();
         } catch (e) {
             console.error('Delete failed', e);
@@ -532,22 +538,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 li.classList.add('error');
                 li.querySelector('.upload-status').textContent = msg;
             },
-            // Saved on the server; `storageError` = the S3 copy failed (stays visible)
-            finish(msg, storageError) {
-                if (!storageError) return this.done(msg);
-                li.classList.add('warn');
-                li.querySelector('.progress-bar').style.width = '100%';
-                li.querySelector('.upload-status').textContent = `${msg} — mas falhou no S3 (${storageError})`;
-            },
         };
     }
 
-    // Rename/delete worked locally but the S3 copy didn't
-    function warnStorage(body) {
-        if (body && body.storage_error) {
-            alert(`Feito no servidor, mas falhou no S3: ${body.storage_error}\nRode "npm run s3-sync" depois para acertar.`);
-        }
-    }
 
     // XHR (not fetch) so we get upload progress events
     function sendFile(file, { method, url }, onProgress) {
@@ -593,7 +586,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 res = await sendFile(file, { method: 'POST', url: createUrl(true) }, item.progress);
             }
             if (res.status === 201) {
-                item.finish(`Salvo como ${res.body.filename}`, res.body.storage_error);
+                item.done(`Salvo como ${res.body.filename}`);
             } else {
                 item.error(res.body.error || `Falha no envio (${res.status})`);
             }
@@ -637,10 +630,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 res = await sendFile(file, { method: 'POST', url: splitUrl(true) }, onProgress);
             }
             if (res.status === 201) {
-                item.finish(`Separado: ${res.body.video} + ${res.body.audio}` +
+                item.done(`Separado: ${res.body.video} + ${res.body.audio}` +
                     (res.body.web ? ' (vídeo otimizado para sites)'
-                        : res.body.transcoded ? ' (vídeo convertido para tocar no navegador)' : ''),
-                    res.body.storage_error);
+                        : res.body.transcoded ? ' (vídeo convertido para tocar no navegador)' : ''));
             } else {
                 item.error(res.body.error || `Falha ao separar (${res.status})`);
             }

@@ -32,19 +32,30 @@ const YAML = require("yamljs");
 const { splitMedia, INPUT_EXTS: SPLIT_INPUT_EXTS } = require("./lib/media-splitter");
 const { createInstanceRegistry } = require("./lib/instances");
 const { writeJsonAtomic } = require("./lib/atomic-write");
-const { createMediaUrl } = require("./lib/media-url");
+const { createMediaUrl, defaultS3BaseUrl } = require("./lib/media-url");
 const { createS3Storage } = require("./lib/s3-storage");
+const { createLocalStore, createS3Store } = require("./lib/media-store");
 
 // ── Config ──────────────────────────────────────────────────────────────────
-// Load .env (Node >= 20.12 built-in); real env vars take precedence
+// Load .env (Node >= 20.12 built-in); real env vars take precedence.
+// ENV_FILE points elsewhere (tests use an empty file so they never touch the real config).
 try {
-  process.loadEnvFile(path.join(__dirname, ".env"));
+  process.loadEnvFile(process.env.ENV_FILE || path.join(__dirname, ".env"));
 } catch (_) {}
 
 const PORT = process.env.PORT || 8001;
 const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
-// Optional CDN/bucket for videos and audios (S3 or CloudFront; same filenames as assets/)
-const mediaUrl = createMediaUrl(process.env.MEDIA_BASE_URL);
+// S3 bucket for the media library (S3_BUCKET set = S3-only, no local copies)
+const S3_CONFIG = {
+  bucket: process.env.S3_BUCKET,
+  region: process.env.S3_REGION,
+  prefix: process.env.S3_PREFIX,
+  endpoint: process.env.S3_ENDPOINT,
+};
+// Where visitors download videos/audios: MEDIA_BASE_URL (bucket or CloudFront),
+// the bucket URL by default in S3 mode, or this server's /media route
+const MEDIA_BASE_URL = process.env.MEDIA_BASE_URL || (S3_CONFIG.bucket ? defaultS3BaseUrl(S3_CONFIG) : "");
+const mediaUrl = createMediaUrl(MEDIA_BASE_URL);
 const DRIFT_THRESHOLD_MS = 80;
 const DRIFT_INTERVAL_MS = 2000;
 const MAX_MOBILE_PER_SCREEN = 50;
@@ -78,27 +89,14 @@ const MIME_TYPES = {
   ".wav": "audio/wav",
 };
 
-// Optional S3 mirror of assets/ (S3_BUCKET set). Local files stay the source of
-// truth; S3 (or CloudFront via MEDIA_BASE_URL) serves them to visitors.
+// Media library: the S3 bucket when S3_BUCKET is set (S3-only), otherwise assets/
 const storage = createS3Storage({
-  bucket: process.env.S3_BUCKET,
-  region: process.env.S3_REGION,
-  prefix: process.env.S3_PREFIX,
-  endpoint: process.env.S3_ENDPOINT,
+  ...S3_CONFIG,
   contentTypeFor: f => MIME_TYPES[path.extname(f).toLowerCase()] || "application/octet-stream",
 });
-
-// Runs a storage action; returns an error message for the admin instead of throwing
-async function mirror(action, ...args) {
-  if (!storage.enabled) return undefined;
-  try {
-    await storage[action](...args);
-    return undefined;
-  } catch (err) {
-    console.error(`[S3] ${action} ${args.filter(a => typeof a === "string").pop()} failed:`, err.message);
-    return `S3: ${err.message || err.name}`;
-  }
-}
+const mediaStore = storage.enabled
+  ? createS3Store({ storage, exts: MEDIA_EXTS })
+  : createLocalStore({ dir: ASSETS_DIR, exts: MEDIA_EXTS });
 
 // ── In-memory stores & Config ───────────────────────────────────────────────
 // TOTEMS_FILE lets tests (and deployments) keep the config elsewhere
@@ -395,20 +393,15 @@ function mediaType(filename) {
   return VIDEO_EXTS.includes(path.extname(filename).toLowerCase()) ? "video" : "audio";
 }
 
-// Resolves an existing media file from a route param, or null
-function existingMediaPath(filename) {
-  if (!filename || filename.startsWith(".") || /[\/]/.test(filename) || filename.includes("..")) return null;
-  if (!MEDIA_EXTS.includes(path.extname(filename).toLowerCase())) return null;
-  const filePath = path.join(ASSETS_DIR, filename);
-  return fs.existsSync(filePath) ? filePath : null;
+// A valid media filename from a route param that exists in the library
+function mediaExists(filename) {
+  if (!filename || filename.startsWith(".") || /[\\/]/.test(filename) || filename.includes("..")) return false;
+  if (!MEDIA_EXTS.includes(path.extname(filename).toLowerCase())) return false;
+  return mediaStore.has(filename);
 }
 
 function listMedia(type) {
-  if (!fs.existsSync(ASSETS_DIR)) return [];
-  return fs.readdirSync(ASSETS_DIR)
-    .filter(f => !f.startsWith(".") && MEDIA_EXTS.includes(path.extname(f).toLowerCase()))
-    .filter(f => !type || mediaType(f) === type)
-    .sort((a, b) => a.localeCompare(b));
+  return mediaStore.list().map(m => m.filename).filter(f => !type || mediaType(f) === type);
 }
 
 // Totem ids whose config references this file
@@ -417,17 +410,23 @@ function totemsUsing(filename) {
     totemsConf[id].video === filename || totemsConf[id].audio === filename);
 }
 
-// Streams the request body into a hidden temp file in assets/ (listings skip
-// dotfiles). Calls onComplete(tmpPath, received, fail) once fully written;
-// on any error the temp file is removed and an error response is sent.
+// Message for the admin when the library storage fails
+function storageErrorMessage(err) {
+  const reason = err && (err.message || err.name) || "erro desconhecido";
+  return mediaStore.remote ? `Falha no S3: ${reason}` : `Não foi possível salvar o arquivo: ${reason}`;
+}
+
+// Streams the request body into a hidden temp file (in assets/ for the local
+// store, in the OS temp folder for S3). Calls onComplete(tmpPath, received, fail)
+// once fully written; on any error the temp file is removed and an error is sent.
 function streamUploadToTemp(req, res, label, onComplete) {
   const declared = parseInt(req.headers["content-length"], 10);
   if (declared > MAX_UPLOAD_BYTES) {
     return res.status(413).json({ error: `Arquivo grande demais (máximo ${MAX_UPLOAD_BYTES / 1024 / 1024} MB)` });
   }
 
-  fs.mkdirSync(ASSETS_DIR, { recursive: true });
-  const tmpPath = path.join(ASSETS_DIR, `.upload-${Date.now()}-${label}`);
+  fs.mkdirSync(mediaStore.tempDir, { recursive: true });
+  const tmpPath = path.join(mediaStore.tempDir, `.upload-${Date.now()}-${label}`);
   const out = fs.createWriteStream(tmpPath);
   let received = 0;
   let failed = false;
@@ -459,20 +458,19 @@ function streamUploadToTemp(req, res, label, onComplete) {
   req.pipe(out);
 }
 
-// Saves the request body as assets/<targetName>. Responds with `status` on success.
+// Saves the request body as <targetName> in the library. Responds with `status` on success.
 function receiveUpload(req, res, targetName, status) {
-  streamUploadToTemp(req, res, targetName, (tmpPath, received, fail) => {
-    const filePath = path.join(ASSETS_DIR, targetName);
-    fs.rename(tmpPath, filePath, async err => {
-      if (err) {
-        console.error("[Media] Rename failed", err);
-        return fail(500, "Não foi possível salvar o arquivo");
-      }
-      const type = mediaType(targetName);
-      console.log(`[Media] Saved ${type} ${targetName} (${(received / 1024 / 1024).toFixed(1)} MB)`);
-      const storage_error = await mirror("upload", filePath, targetName);
-      res.status(status).json({ success: true, filename: targetName, type, size: received, storage_error });
-    });
+  streamUploadToTemp(req, res, targetName, async (tmpPath, received, fail) => {
+    try {
+      await mediaStore.putFile(tmpPath, targetName);
+    } catch (err) {
+      console.error(`[Media] Save ${targetName} failed:`, err.message);
+      fs.rm(tmpPath, { force: true }, () => {});
+      return fail(502, storageErrorMessage(err));
+    }
+    const type = mediaType(targetName);
+    console.log(`[Media] Saved ${type} ${targetName} (${(received / 1024 / 1024).toFixed(1)} MB)`);
+    res.status(status).json({ success: true, filename: targetName, type, size: received });
   });
 }
 
@@ -481,16 +479,15 @@ app.get("/api/audios", (req, res) => res.json(listMedia("audio")));
 
 // List: GET /api/media
 app.get("/api/media", (req, res) => {
-  res.json(listMedia().map(filename => {
-    const stat = fs.statSync(path.join(ASSETS_DIR, filename));
-    return {
-      filename,
-      type: mediaType(filename),
-      size: stat.size,
-      modified: stat.mtime.toISOString(),
-      used_by: totemsUsing(filename),
-    };
-  }));
+  const status = mediaStore.status();
+  if (!status.ok) return res.status(503).json({ error: storageErrorMessage({ message: status.error }) });
+  res.json(mediaStore.list().map(m => ({
+    filename: m.filename,
+    type: mediaType(m.filename),
+    size: m.size,
+    modified: m.modified ? new Date(m.modified).toISOString() : null,
+    used_by: totemsUsing(m.filename),
+  })));
 });
 
 // Create: POST /api/media?filename=promo.mp4[&overwrite=1]  (raw body)
@@ -500,7 +497,7 @@ app.post("/api/media", (req, res) => {
     return res.status(400).json({ error: `Arquivo inválido. Permitidos: ${MEDIA_EXTS.join(", ")}` });
   }
   const overwrite = req.query.overwrite === "1" || req.query.overwrite === "true";
-  if (fs.existsSync(path.join(ASSETS_DIR, filename)) && !overwrite) {
+  if (mediaStore.has(filename) && !overwrite) {
     return res.status(409).json({ error: "O arquivo já existe", filename });
   }
   receiveUpload(req, res, filename, 201);
@@ -521,28 +518,33 @@ app.post("/api/media/split", (req, res) => {
   const overwrite = req.query.overwrite === "1" || req.query.overwrite === "true";
   const videoName = `${base}_video${ext === ".webm" ? ".webm" : ".mp4"}`;
   const audioName = `${base}_audio.mp3`;
-  const existing = [videoName, audioName].filter(f => fs.existsSync(path.join(ASSETS_DIR, f)));
+  const existing = [videoName, audioName].filter(f => mediaStore.has(f));
   if (existing.length && !overwrite) {
     return res.status(409).json({ error: "Já existem arquivos com esses nomes", files: existing });
   }
 
   streamUploadToTemp(req, res, `${base}${ext}`, async (tmpPath, received) => {
     const started = Date.now();
+    // Outputs go to a scratch folder first, then into the library
+    const workDir = fs.mkdtempSync(path.join(mediaStore.tempDir, ".split-"));
     try {
       const web = req.query.web === "1" || req.query.web === "true";
-      const result = await splitMedia(tmpPath, { outDir: ASSETS_DIR, baseName: base, overwrite, web });
+      const result = await splitMedia(tmpPath, { outDir: workDir, baseName: base, overwrite: true, web });
       const video = path.basename(result.video);
       const audio = path.basename(result.audio);
+      if (!overwrite && (mediaStore.has(video) || mediaStore.has(audio))) {
+        return res.status(409).json({ error: "Já existem arquivos com esses nomes", files: [video, audio].filter(f => mediaStore.has(f)) });
+      }
+      try {
+        await mediaStore.putFile(result.video, video);
+        await mediaStore.putFile(result.audio, audio);
+      } catch (err) {
+        console.error("[Media] Split save failed:", err.message);
+        return res.status(502).json({ error: storageErrorMessage(err) });
+      }
       console.log(`[Media] Split ${raw} (${(received / 1024 / 1024).toFixed(1)} MB) → ${video} + ${audio}` +
         `${result.transcoded ? " (video re-encoded)" : ""} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
-      const storageErrors = [
-        await mirror("upload", result.video, video),
-        await mirror("upload", result.audio, audio),
-      ].filter(Boolean);
-      res.status(201).json({
-        success: true, video, audio, transcoded: result.transcoded, web: result.web, duration: result.duration,
-        storage_error: storageErrors.length ? storageErrors.join("; ") : undefined,
-      });
+      res.status(201).json({ success: true, video, audio, transcoded: result.transcoded, web: result.web, duration: result.duration });
     } catch (err) {
       console.error("[Media] Split failed:", err.message);
       const userError = /não tem faixa|não suportado|Já existe/.test(err.message);
@@ -551,21 +553,21 @@ app.post("/api/media/split", (req, res) => {
       });
     } finally {
       fs.rm(tmpPath, { force: true }, () => {});
+      fs.rm(workDir, { recursive: true, force: true }, () => {});
     }
   });
 });
 
 // Replace content: PUT /api/media/:filename  (raw body, keeps the name)
 app.put("/api/media/:filename", (req, res) => {
-  if (!existingMediaPath(req.params.filename)) return res.status(404).json({ error: "Arquivo não encontrado" });
+  if (!mediaExists(req.params.filename)) return res.status(404).json({ error: "Arquivo não encontrado" });
   receiveUpload(req, res, req.params.filename, 200);
 });
 
 // Rename: PATCH /api/media/:filename  { "filename": "new-name.mp4" }
 app.patch("/api/media/:filename", async (req, res) => {
   const oldName = req.params.filename;
-  const oldPath = existingMediaPath(oldName);
-  if (!oldPath) return res.status(404).json({ error: "Arquivo não encontrado" });
+  if (!mediaExists(oldName)) return res.status(404).json({ error: "Arquivo não encontrado" });
 
   const newName = sanitizeFilename(req.body && req.body.filename);
   if (!newName) return res.status(400).json({ error: `Nome inválido. Permitidos: ${MEDIA_EXTS.join(", ")}` });
@@ -573,15 +575,15 @@ app.patch("/api/media/:filename", async (req, res) => {
     return res.status(400).json({ error: `${mediaType(oldName) === "video" ? "Um vídeo precisa continuar com extensão de vídeo" : "Um áudio precisa continuar com extensão de áudio"}` });
   }
   if (newName === oldName) return res.json({ success: true, filename: newName, updated_totems: [] });
-  if (fs.existsSync(path.join(ASSETS_DIR, newName))) {
+  if (mediaStore.has(newName)) {
     return res.status(409).json({ error: "Já existe um arquivo com esse nome", filename: newName });
   }
 
   try {
-    fs.renameSync(oldPath, path.join(ASSETS_DIR, newName));
+    await mediaStore.rename(oldName, newName);
   } catch (e) {
-    console.error("[Media] Rename failed", e);
-    return res.status(500).json({ error: "Não foi possível renomear o arquivo" });
+    console.error("[Media] Rename failed", e.message);
+    return res.status(502).json({ error: storageErrorMessage(e) });
   }
 
   // Keep totem configs pointing at the file under its new name
@@ -595,15 +597,13 @@ app.patch("/api/media/:filename", async (req, res) => {
   updated.forEach(id => sendToCampaign(id, videoMessage(id)));
 
   console.log(`[Media] Renamed ${oldName} → ${newName}${updated.length ? ` (totems: ${updated.join(", ")})` : ""}`);
-  const storage_error = await mirror("rename", oldName, newName);
-  res.json({ success: true, filename: newName, updated_totems: updated, storage_error });
+  res.json({ success: true, filename: newName, updated_totems: updated });
 });
 
 // Delete: DELETE /api/media/:filename  (refused while a totem uses it)
 app.delete("/api/media/:filename", async (req, res) => {
   const filename = req.params.filename;
-  const filePath = existingMediaPath(filename);
-  if (!filePath) return res.status(404).json({ error: "Arquivo não encontrado" });
+  if (!mediaExists(filename)) return res.status(404).json({ error: "Arquivo não encontrado" });
 
   const usedBy = totemsUsing(filename);
   if (usedBy.length) {
@@ -611,14 +611,13 @@ app.delete("/api/media/:filename", async (req, res) => {
   }
 
   try {
-    fs.unlinkSync(filePath);
+    await mediaStore.remove(filename);
   } catch (e) {
-    console.error("[Media] Delete failed", e);
-    return res.status(500).json({ error: "Não foi possível excluir o arquivo" });
+    console.error("[Media] Delete failed", e.message);
+    return res.status(502).json({ error: storageErrorMessage(e) });
   }
   console.log(`[Media] Deleted ${filename}`);
-  const storage_error = await mirror("remove", filename);
-  res.json({ success: true, filename, storage_error });
+  res.json({ success: true, filename });
 });
 
 
@@ -782,9 +781,12 @@ app.get("/media/:filename", (req, res) => {
     return res.status(400).json({ error: "Nome de arquivo inválido" });
   }
 
-  const filePath = path.join(ASSETS_DIR, filename);
+  // S3-only: files live in the bucket — send old links / admin previews there
+  if (mediaStore.remote) return res.redirect(302, mediaUrl(filename));
 
-  if (!fs.existsSync(filePath)) {
+  const filePath = mediaStore.localPath(filename);
+
+  if (!filePath) {
     return res.status(404).json({ error: "Arquivo não encontrado" });
   }
 
@@ -1065,7 +1067,8 @@ function computeCorrection(clientPosition, startTime, duration) {
 }
 
 // ── Start server ────────────────────────────────────────────────────────────
-server.listen(PORT, "0.0.0.0", () => {
+// Load the media library first (the bucket listing in S3 mode), then listen
+mediaStore.init().then(() => server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n  🎬 OOH Audio Sync running on http://0.0.0.0:${PORT}`);
   console.log(`  📺 Totem:  ${PUBLIC_URL}/static/totem.html?screen=totem1`);
   console.log(`  ⚙️  Admin:  ${PUBLIC_URL}/admin`);
@@ -1073,9 +1076,14 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`  📱 Mobile: ${PUBLIC_URL}/static/mobile_debug.html?screen=totem1`);
   console.log(`  ❤️  Health: ${PUBLIC_URL}/health`);
   console.log(`  📖 Docs:   ${PUBLIC_URL}/api-docs\n`);
-  if (storage.enabled) {
-    console.log(`  ☁️  Media mirrored to ${storage.describe()}` +
-      (process.env.MEDIA_BASE_URL ? ` — served from ${process.env.MEDIA_BASE_URL}` : " — MEDIA_BASE_URL not set, still served locally") + "\n");
+  const status = mediaStore.status();
+  if (mediaStore.remote) {
+    console.log(`  ☁️  Media library: ${mediaStore.describe()} (${mediaStore.list().length} files) — served from ${MEDIA_BASE_URL}\n`);
+    if (!status.ok) console.error(`  ❌ Could not list the S3 bucket: ${status.error}\n`);
+    // Pick up changes made outside the admin (console, s3-sync, another server)
+    setInterval(() => mediaStore.refresh(), 60000).unref();
+  } else {
+    console.log(`  📁 Media library: ${mediaStore.describe()} (${mediaStore.list().length} files)\n`);
   }
   if (!ADMIN_USER || !ADMIN_PASSWORD) {
     console.warn("  ⚠️  ADMIN_USER / ADMIN_PASSWORD not set in .env — admin login is disabled\n");
@@ -1083,4 +1091,4 @@ server.listen(PORT, "0.0.0.0", () => {
   if (!process.env.SESSION_SECRET) {
     console.warn("  ⚠️  SESSION_SECRET not set in .env — admin sessions end when the server restarts\n");
   }
-});
+}));

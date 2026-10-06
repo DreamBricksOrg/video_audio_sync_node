@@ -82,6 +82,19 @@ test("needsUpload compares the remote size and treats 404 as missing", async () 
   assert.equal(await storage.needsUpload("missing.mp3", 10), true);
 });
 
+test("list pages through the prefix and returns direct children only", async () => {
+  const pages = [
+    { Contents: [{ Key: "audiosync/a.mp4", Size: 10, LastModified: new Date(1) }, { Key: "audiosync/sub/x.mp3", Size: 1 }], IsTruncated: true, NextContinuationToken: "t2" },
+    { Contents: [{ Key: "audiosync/b.mp3", Size: 3, LastModified: new Date(2) }], IsTruncated: false },
+  ];
+  const sent = [];
+  const client = { async send(cmd) { sent.push(cmd.input); return pages[sent.length - 1]; } };
+  const items = await createS3Storage({ bucket: "midia", prefix: "audiosync", client }).list();
+  assert.deepEqual(items.map(i => [i.filename, i.size]), [["a.mp4", 10], ["b.mp3", 3]]);
+  assert.equal(sent[0].Prefix, "audiosync/");
+  assert.equal(sent[1].ContinuationToken, "t2");
+});
+
 test("describe shows where files go", () => {
   const storage = createS3Storage({ bucket: "midia", prefix: "audiosync", client: fakeClient() });
   assert.equal(storage.describe(), "s3://midia/audiosync/");

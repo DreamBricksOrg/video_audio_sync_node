@@ -364,7 +364,6 @@ html, body {
 .upload-status { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--text-secondary); }
 .upload-item.done .upload-status  { color: var(--db-success-500); }
 .upload-item.error .upload-status { color: var(--db-danger-500); }
-.upload-item.warn .upload-status  { color: #8a5a00; }
 .progress {
     grid-column: 1 / -1; height: 6px;
     background: var(--surface-sunken); border-radius: var(--radius-pill); overflow: hidden;
@@ -375,7 +374,6 @@ html, body {
 }
 .upload-item.done .progress-bar  { background: var(--db-success-500); }
 .upload-item.error .progress-bar { background: var(--db-danger-500); }
-.upload-item.warn .progress-bar  { background: var(--db-warning-500); }
 
 .media-columns {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -406,6 +404,7 @@ html, body {
 }
 .media-list li:first-child { border-top: none; }
 .media-list .empty { color: var(--text-tertiary); font-size: var(--text-sm); }
+.media-list .media-error { color: var(--db-danger-500); }
 
 .media-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .media-name {

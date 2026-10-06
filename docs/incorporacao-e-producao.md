@@ -34,58 +34,116 @@ Parâmetros da URL `/static/totem.html`:
 - [ ] Vídeos de campanha separados com **"Otimizar para sites"** (vídeo bem menor para cada visitante baixar).
 - [ ] Processo gerenciado (pm2, systemd ou o serviço da nuvem) para reiniciar em falhas.
 - [ ] Rodar `npm run load-test -- --url <servidor> --campaign <id> --screens <N> --phones <M>` contra um ambiente de teste com o volume esperado. Referência local: 100 telas + 200 celulares usaram ~55 MB de memória.
-- [ ] Mídia no S3 + CloudFront (abaixo), para os visitantes não baixarem os vídeos do servidor.
+- [ ] Mídia no S3 (abaixo), para os visitantes não baixarem os vídeos do servidor.
 - [ ] `CORS_ORIGINS` vazio, a não ser que outro site precise ler `/media` direto.
 
-## Mídia no S3 + CloudFront
+## Mídia no S3
 
-O servidor continua guardando os arquivos em `assets/` (fonte de verdade). Com o S3 ligado, todo envio, separação, substituição, renomear e exclusão feito no admin é **replicado no bucket automaticamente**, e os visitantes baixam de lá.
+Com `S3_BUCKET` no `.env`, a biblioteca de mídia fica **só no bucket**: o admin lista, envia, separa, substitui, renomeia e exclui direto no S3, e a pasta `assets/` não é usada (o servidor só cria arquivos temporários durante envio e separação). Os visitantes baixam vídeos e áudios direto do S3, e `/media/<arquivo>` redireciona para lá. Sem `S3_BUCKET`, tudo continua em `assets/` (modo local).
 
-1. **Bucket**: crie um bucket S3 (ex.: região `sa-east-1`).
-2. **Usuário IAM** só para o servidor, com esta política (troque `MEU-BUCKET`):
+### 1. Bucket (S3 → Create bucket)
 
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [{
-       "Effect": "Allow",
-       "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
-       "Resource": "arn:aws:s3:::MEU-BUCKET/*"
-     }]
-   }
-   ```
+| Configuração | Valor |
+|---|---|
+| Nome | ex.: `dreambricks-audiosync-media` |
+| Região | `sa-east-1` (São Paulo) |
+| Object Ownership | *ACLs disabled* |
+| Block Public Access | Marcar só as duas opções de **ACL**; **desmarcar** as duas de **bucket policy** |
+| Versioning | *Disable* |
+| Encryption | *SSE-S3* |
 
-   `CopyObject` (renomear) usa `GetObject` + `PutObject`; `HeadObject` (usado pelo `s3-sync`) usa `GetObject`.
-3. **CloudFront** (recomendado): crie uma distribuição com o bucket como origem, usando *Origin Access Control* (o bucket continua privado). Cache policy `CachingOptimized` respeita o `Cache-Control: max-age=60` que o servidor grava — um arquivo substituído aparece em até ~1 minuto.
-   - Sem CloudFront, o bucket precisa permitir leitura pública dos objetos.
-4. **CORS no bucket** — obrigatório: o celular baixa o áudio com `fetch()` para sincronizar. Em *Permissions → CORS* do bucket:
+### 2. Leitura pública (Permissions → Bucket policy)
 
-   ```json
-   [{
-     "AllowedOrigins": ["https://SEU-DOMINIO"],
-     "AllowedMethods": ["GET", "HEAD"],
-     "AllowedHeaders": ["Range"],
-     "ExposeHeaders": ["Content-Length", "Content-Range", "Accept-Ranges", "ETag"],
-     "MaxAgeSeconds": 3600
-   }]
-   ```
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "PublicReadMedia",
+    "Effect": "Allow",
+    "Principal": "*",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::MEU-BUCKET/*"
+  }]
+}
+```
 
-   Com CloudFront, use uma *response headers policy* com CORS (ou repasse o header `Origin` para a origem).
-5. **`.env`** do servidor:
+Só leitura de arquivos: ninguém de fora lista, envia ou apaga.
 
-   ```
-   S3_BUCKET=MEU-BUCKET
-   S3_REGION=sa-east-1
-   S3_PREFIX=audiosync
-   AWS_ACCESS_KEY_ID=...
-   AWS_SECRET_ACCESS_KEY=...
-   MEDIA_BASE_URL=https://dxxxxxxxx.cloudfront.net/audiosync
-   ```
+### 3. CORS (Permissions → CORS) — obrigatório
 
-6. **Arquivos que já existem**: `npm run s3-sync -- --dry-run` para conferir e `npm run s3-sync` para enviar.
-7. Reinicie o servidor. O console mostra `Media mirrored to s3://MEU-BUCKET/audiosync/ — served from ...`.
+O celular baixa o áudio com `fetch()` para sincronizar.
 
-Se o S3 falhar num envio, o arquivo fica salvo no servidor e o admin avisa ("falhou no S3"); rode `npm run s3-sync` depois para acertar. Armazenamentos compatíveis (MinIO, Cloudflare R2) funcionam com `S3_ENDPOINT`.
+```json
+[{
+  "AllowedOrigins": ["*"],
+  "AllowedMethods": ["GET", "HEAD"],
+  "AllowedHeaders": ["*"],
+  "ExposeHeaders": ["Content-Length", "Content-Range", "Accept-Ranges", "ETag"],
+  "MaxAgeSeconds": 3600
+}]
+```
+
+Para restringir, troque `"*"` em `AllowedOrigins` pelo domínio do servidor (a página do celular vem dele; os sites que só embutem o iframe não precisam entrar).
+
+### 4. Usuário IAM do servidor
+
+Política (troque `MEU-BUCKET`). `ListBucket` é necessário para o admin listar a biblioteca:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::MEU-BUCKET"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::MEU-BUCKET/*"
+    }
+  ]
+}
+```
+
+Crie uma *Access key* ("Application running outside AWS"), ou use um IAM Role se o servidor rodar na AWS.
+
+### 5. `.env`
+
+```
+S3_BUCKET=MEU-BUCKET
+S3_REGION=sa-east-1        # a MESMA região do bucket
+S3_PREFIX=audiosync
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+# Opcional: vazio usa https://MEU-BUCKET.s3.sa-east-1.amazonaws.com/audiosync
+MEDIA_BASE_URL=
+```
+
+### 6. Migrar arquivos de uma pasta local (se houver)
+
+`npm run s3-sync -- --dry-run` para conferir e `npm run s3-sync` para enviar o que falta.
+
+### 7. Ligar
+
+Reinicie o servidor. O console mostra `Media library: s3://MEU-BUCKET/audiosync/ (N files) — served from https://...`.
+
+### Problemas comuns
+
+| Sintoma | Causa provável |
+|---|---|
+| `s3-sync` mostra `UnknownError`, ou console "Could not list the S3 bucket" com redirecionamento (301) | `S3_REGION` diferente da região do bucket |
+| Biblioteca de mídia mostra "Falha no S3: Access Denied" | Falta `s3:ListBucket` na política do usuário |
+| `AccessDenied` ao abrir o link de um vídeo | Bucket policy não salva, ou Block Public Access ainda bloqueando policies |
+| Vídeo toca no totem, mas o celular não sincroniza | CORS do bucket faltando |
+| Envio no admin falha com "Falha no S3" | Credenciais ou permissões de escrita do usuário IAM |
+
+Arquivos alterados fora do admin (console da AWS, `s3-sync`) aparecem na biblioteca em até 1 minuto. Armazenamentos compatíveis (MinIO, Cloudflare R2) funcionam com `S3_ENDPOINT`.
+
+### Opcional: CloudFront na frente
+
+Quando o tráfego crescer, crie uma distribuição CloudFront com o bucket como origem (*Origin Access Control*), cache policy `CachingOptimized` (respeita o `Cache-Control: max-age=60` que o servidor grava) e response headers policy `CORS-With-Preflight`. Depois troque `MEDIA_BASE_URL` pela URL da distribuição — sem mudar código. Com CloudFront + OAC, o bucket pode voltar a ser privado.
 
 ## Limites conhecidos
 

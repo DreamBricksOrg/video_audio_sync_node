@@ -14,7 +14,7 @@ const path = require("path");
 const { createS3Storage } = require("../lib/s3-storage");
 
 try {
-  process.loadEnvFile(path.join(__dirname, "..", ".env"));
+  process.loadEnvFile(process.env.ENV_FILE || path.join(__dirname, "..", ".env"));
 } catch (_) {}
 
 const ASSETS_DIR = process.env.ASSETS_DIR || path.join(__dirname, "..", "assets");

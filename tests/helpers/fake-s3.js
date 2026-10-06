@@ -5,8 +5,24 @@ const http = require("node:http");
 function startFakeS3() {
   const objects = new Map(); // "bucket/key" → { body, headers }
 
+  const xmlEscape = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
   const server = http.createServer((req, res) => {
-    const path = decodeURIComponent(new URL(req.url, "http://x").pathname.slice(1));
+    const url = new URL(req.url, "http://x");
+    const path = decodeURIComponent(url.pathname.slice(1)).replace(/\/$/, "");
+
+    // ListObjectsV2: GET /<bucket>?list-type=2&prefix=...
+    if (req.method === "GET" && url.searchParams.get("list-type") === "2") {
+      const prefix = `${path}/${url.searchParams.get("prefix") || ""}`;
+      const contents = [...objects]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([k, o]) => `<Contents><Key>${xmlEscape(k.slice(path.length + 1))}</Key>` +
+          `<Size>${o.body.length}</Size><LastModified>${new Date().toISOString()}</LastModified></Contents>`)
+        .join("");
+      res.writeHead(200, { "Content-Type": "application/xml" });
+      return res.end(`<?xml version="1.0"?><ListBucketResult><Name>${xmlEscape(path)}</Name>` +
+        `<IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`);
+    }
     const chunks = [];
     req.on("data", c => chunks.push(c));
     req.on("end", () => {
