@@ -33,6 +33,7 @@ const { splitMedia, INPUT_EXTS: SPLIT_INPUT_EXTS } = require("./lib/media-splitt
 const { createInstanceRegistry } = require("./lib/instances");
 const { writeJsonAtomic } = require("./lib/atomic-write");
 const { createMediaUrl } = require("./lib/media-url");
+const { createS3Storage } = require("./lib/s3-storage");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 // Load .env (Node >= 20.12 built-in); real env vars take precedence
@@ -52,7 +53,7 @@ const MAX_SCREENS_PER_IP = parseInt(process.env.MAX_SCREENS_PER_IP, 10) || 20;
 const MAX_INSTANCES_PER_CAMPAIGN = parseInt(process.env.MAX_INSTANCES_PER_CAMPAIGN, 10) || 2000;
 // Behind a proxy/tunnel (ngrok, Nginx, Cloudflare) set TRUST_PROXY=1 to use X-Forwarded-For
 const TRUST_PROXY = process.env.TRUST_PROXY === "1";
-const ASSETS_DIR = path.join(__dirname, "assets");
+const ASSETS_DIR = process.env.ASSETS_DIR || path.join(__dirname, "assets");
 const STATIC_DIR = path.join(__dirname, "static");
 
 const MAX_UPLOAD_BYTES = (parseInt(process.env.MAX_UPLOAD_MB, 10) || 500) * 1024 * 1024;
@@ -76,6 +77,28 @@ const MIME_TYPES = {
   ".ogg": "audio/ogg",
   ".wav": "audio/wav",
 };
+
+// Optional S3 mirror of assets/ (S3_BUCKET set). Local files stay the source of
+// truth; S3 (or CloudFront via MEDIA_BASE_URL) serves them to visitors.
+const storage = createS3Storage({
+  bucket: process.env.S3_BUCKET,
+  region: process.env.S3_REGION,
+  prefix: process.env.S3_PREFIX,
+  endpoint: process.env.S3_ENDPOINT,
+  contentTypeFor: f => MIME_TYPES[path.extname(f).toLowerCase()] || "application/octet-stream",
+});
+
+// Runs a storage action; returns an error message for the admin instead of throwing
+async function mirror(action, ...args) {
+  if (!storage.enabled) return undefined;
+  try {
+    await storage[action](...args);
+    return undefined;
+  } catch (err) {
+    console.error(`[S3] ${action} ${args.filter(a => typeof a === "string").pop()} failed:`, err.message);
+    return `S3: ${err.message || err.name}`;
+  }
+}
 
 // ── In-memory stores & Config ───────────────────────────────────────────────
 // TOTEMS_FILE lets tests (and deployments) keep the config elsewhere
@@ -439,14 +462,16 @@ function streamUploadToTemp(req, res, label, onComplete) {
 // Saves the request body as assets/<targetName>. Responds with `status` on success.
 function receiveUpload(req, res, targetName, status) {
   streamUploadToTemp(req, res, targetName, (tmpPath, received, fail) => {
-    fs.rename(tmpPath, path.join(ASSETS_DIR, targetName), err => {
+    const filePath = path.join(ASSETS_DIR, targetName);
+    fs.rename(tmpPath, filePath, async err => {
       if (err) {
         console.error("[Media] Rename failed", err);
         return fail(500, "Não foi possível salvar o arquivo");
       }
       const type = mediaType(targetName);
       console.log(`[Media] Saved ${type} ${targetName} (${(received / 1024 / 1024).toFixed(1)} MB)`);
-      res.status(status).json({ success: true, filename: targetName, type, size: received });
+      const storage_error = await mirror("upload", filePath, targetName);
+      res.status(status).json({ success: true, filename: targetName, type, size: received, storage_error });
     });
   });
 }
@@ -510,7 +535,14 @@ app.post("/api/media/split", (req, res) => {
       const audio = path.basename(result.audio);
       console.log(`[Media] Split ${raw} (${(received / 1024 / 1024).toFixed(1)} MB) → ${video} + ${audio}` +
         `${result.transcoded ? " (video re-encoded)" : ""} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
-      res.status(201).json({ success: true, video, audio, transcoded: result.transcoded, web: result.web, duration: result.duration });
+      const storageErrors = [
+        await mirror("upload", result.video, video),
+        await mirror("upload", result.audio, audio),
+      ].filter(Boolean);
+      res.status(201).json({
+        success: true, video, audio, transcoded: result.transcoded, web: result.web, duration: result.duration,
+        storage_error: storageErrors.length ? storageErrors.join("; ") : undefined,
+      });
     } catch (err) {
       console.error("[Media] Split failed:", err.message);
       const userError = /não tem faixa|não suportado|Já existe/.test(err.message);
@@ -530,7 +562,7 @@ app.put("/api/media/:filename", (req, res) => {
 });
 
 // Rename: PATCH /api/media/:filename  { "filename": "new-name.mp4" }
-app.patch("/api/media/:filename", (req, res) => {
+app.patch("/api/media/:filename", async (req, res) => {
   const oldName = req.params.filename;
   const oldPath = existingMediaPath(oldName);
   if (!oldPath) return res.status(404).json({ error: "Arquivo não encontrado" });
@@ -563,11 +595,12 @@ app.patch("/api/media/:filename", (req, res) => {
   updated.forEach(id => sendToCampaign(id, videoMessage(id)));
 
   console.log(`[Media] Renamed ${oldName} → ${newName}${updated.length ? ` (totems: ${updated.join(", ")})` : ""}`);
-  res.json({ success: true, filename: newName, updated_totems: updated });
+  const storage_error = await mirror("rename", oldName, newName);
+  res.json({ success: true, filename: newName, updated_totems: updated, storage_error });
 });
 
 // Delete: DELETE /api/media/:filename  (refused while a totem uses it)
-app.delete("/api/media/:filename", (req, res) => {
+app.delete("/api/media/:filename", async (req, res) => {
   const filename = req.params.filename;
   const filePath = existingMediaPath(filename);
   if (!filePath) return res.status(404).json({ error: "Arquivo não encontrado" });
@@ -584,7 +617,8 @@ app.delete("/api/media/:filename", (req, res) => {
     return res.status(500).json({ error: "Não foi possível excluir o arquivo" });
   }
   console.log(`[Media] Deleted ${filename}`);
-  res.json({ success: true, filename });
+  const storage_error = await mirror("remove", filename);
+  res.json({ success: true, filename, storage_error });
 });
 
 
@@ -1039,6 +1073,10 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`  📱 Mobile: ${PUBLIC_URL}/static/mobile_debug.html?screen=totem1`);
   console.log(`  ❤️  Health: ${PUBLIC_URL}/health`);
   console.log(`  📖 Docs:   ${PUBLIC_URL}/api-docs\n`);
+  if (storage.enabled) {
+    console.log(`  ☁️  Media mirrored to ${storage.describe()}` +
+      (process.env.MEDIA_BASE_URL ? ` — served from ${process.env.MEDIA_BASE_URL}` : " — MEDIA_BASE_URL not set, still served locally") + "\n");
+  }
   if (!ADMIN_USER || !ADMIN_PASSWORD) {
     console.warn("  ⚠️  ADMIN_USER / ADMIN_PASSWORD not set in .env — admin login is disabled\n");
   }
