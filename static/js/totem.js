@@ -34,6 +34,9 @@ if (SHOW_QR) {
         colorDark: "#034a5d", colorLight: "#ffffff", // --db-blue-900 on white
         correctLevel: QRCode.CorrectLevel.H,
     });
+    // Clicking the QR card opens the same page the QR points to (new tab, so an
+    // embedding site isn't replaced)
+    qrOverlay.href = MOBILE_URL;
 } else {
     qrOverlay.remove();
 }

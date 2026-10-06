@@ -63,6 +63,13 @@ html, body {
     transition: opacity var(--duration-slow) var(--ease-standard);
 }
 
+a.qr-overlay {
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+a.qr-overlay:focus-visible { outline: none; box-shadow: var(--shadow-lg), var(--shadow-focus); }
+
 .qr-overlay.hidden {
     opacity: 0;
     pointer-events: none;
