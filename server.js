@@ -716,6 +716,7 @@ app.get("/health", (req, res) => {
     screens_online: t.online,
     mobile_clients: t.mobiles,
     uptime_s: Math.round(process.uptime()),
+    memory_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
   });
 });
 
