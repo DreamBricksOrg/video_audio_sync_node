@@ -13,7 +13,6 @@ const LISTEN_PARAM = (urlParams.get('listen') || 'auto').toLowerCase();
 const LISTEN_MODE = LISTEN_PARAM === 'on' ||
     (LISTEN_PARAM === 'auto' && matchMedia('(pointer: coarse)').matches && matchMedia('(max-width: 820px)').matches);
 if (LISTEN_MODE) document.querySelector(".totem-container").classList.add("listen-mode");
-const API_KEY   = "your-secret-api-key-here";
 const WS_HOST   = location.host;
 const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
 // One instance per page load: every screen/iframe gets its own sync session.
@@ -138,8 +137,10 @@ function registerSession() {
     if (registered) return;
     registered = true;
 
-    // Reconnects reuse INSTANCE_ID, so phones already synced keep their session
-    const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/screen/${SCREEN_ID}?instance=${INSTANCE_ID}&api_key=${API_KEY}`);
+    // Reconnects reuse INSTANCE_ID, so phones already synced keep their session.
+    // No API key: the page is public, so a key here would be visible to anyone —
+    // abuse is handled server-side (screens per IP / per campaign limits).
+    const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/screen/${SCREEN_ID}?instance=${INSTANCE_ID}`);
     screenWs = ws;
 
     ws.onopen = () => {
