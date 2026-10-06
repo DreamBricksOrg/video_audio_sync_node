@@ -31,6 +31,7 @@ const swaggerUi = require("swagger-ui-express");
 const YAML = require("yamljs");
 const { splitMedia, INPUT_EXTS: SPLIT_INPUT_EXTS } = require("./lib/media-splitter");
 const { createInstanceRegistry } = require("./lib/instances");
+const { writeJsonAtomic } = require("./lib/atomic-write");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 // Load .env (Node >= 20.12 built-in); real env vars take precedence
@@ -139,7 +140,8 @@ function loadTotemsConf() {
 
 function saveTotemsConf(conf) {
   try {
-    fs.writeFileSync(TOTEMS_FILE, JSON.stringify(conf, null, 2), "utf-8");
+    // Temp file + rename: a crash mid-write can't corrupt the config
+    writeJsonAtomic(TOTEMS_FILE, conf);
   } catch (e) {
     console.error("Failed to write to totems.json", e);
   }
