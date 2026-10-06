@@ -10,7 +10,13 @@ if ((urlParams.get('fit') || "").toLowerCase() === "contain") {
 const API_KEY   = "your-secret-api-key-here";
 const WS_HOST   = location.host;
 const WS_PROTO  = location.protocol === "https:" ? "wss" : "ws";
-const MOBILE_URL = `${location.protocol}//${location.host}/static/mobile.html?screen=${SCREEN_ID}`;
+// One instance per page load: every screen/iframe gets its own sync session.
+// (crypto.randomUUID only exists on https/localhost, hence the fallback.)
+const INSTANCE_ID = (window.crypto && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const MOBILE_URL = `${location.protocol}//${location.host}/static/mobile.html` +
+    `?screen=${encodeURIComponent(SCREEN_ID)}&instance=${INSTANCE_ID}`;
 
 const video     = document.getElementById("video");
 const statusDot = document.getElementById("statusDot");
@@ -59,7 +65,8 @@ function registerSession() {
     if (registered) return;
     registered = true;
 
-    const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/screen/${SCREEN_ID}?api_key=${API_KEY}`);
+    // Reconnects reuse INSTANCE_ID, so phones already synced keep their session
+    const ws = new WebSocket(`${WS_PROTO}://${WS_HOST}/ws/screen/${SCREEN_ID}?instance=${INSTANCE_ID}&api_key=${API_KEY}`);
     screenWs = ws;
 
     ws.onopen = () => {
