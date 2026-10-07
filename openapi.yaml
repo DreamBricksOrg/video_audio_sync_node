@@ -261,6 +261,55 @@ paths:
         '400':
           description: Invalid URL, missing label or too many links
 
+  /api/media/upload-url:
+    post:
+      summary: Sign a Direct Upload (S3 mode)
+      description: |
+        Returns a short-lived (10 min) presigned URL to PUT one file straight to the bucket,
+        bound to its content type and size. In local mode returns `{ "direct": false }`:
+        upload through `POST /api/media` instead. After the PUT, call `/api/media/upload-complete`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, size]
+              properties:
+                filename: { type: string, example: "promo.mp4" }
+                size: { type: integer, description: "Bytes" }
+                overwrite: { type: boolean }
+                replace: { type: string, description: "Existing file whose content is replaced (same extension)" }
+      responses:
+        '200':
+          description: "`{ direct, filename, url, headers, expires_in }` — send the PUT with exactly these headers"
+        '400':
+          description: Invalid name or empty file
+        '404':
+          description: "`replace` file not found"
+        '409':
+          description: "File exists (send `overwrite: true`)"
+        '413':
+          description: Larger than MAX_UPLOAD_MB
+
+  /api/media/upload-complete:
+    post:
+      summary: Register a Direct Upload (S3 mode)
+      description: Checks the file is in the bucket and adds it to the library.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filename: { type: string }
+      responses:
+        '201':
+          description: "`{ success, filename, type, size }`"
+        '404':
+          description: The file is not in the bucket
+
   /api/media/split:
     post:
       summary: Upload Video With Audio and Split

@@ -86,19 +86,33 @@ Só leitura de arquivos: ninguém de fora lista, envia ou apaga.
 
 ### 3. CORS (Permissions → CORS) — obrigatório
 
-O celular baixa o áudio com `fetch()` para sincronizar.
+Duas regras:
+
+- **leitura** (GET/HEAD) para todos: o celular baixa o áudio com `fetch()` para sincronizar;
+- **envio** (PUT) só do domínio do admin: o admin envia vídeos e áudios direto para o bucket, sem passar pelo servidor. Cada envio usa um link assinado pelo servidor que vale 10 minutos e só para aquele arquivo, com aquele tipo e tamanho.
 
 ```json
-[{
-  "AllowedOrigins": ["*"],
-  "AllowedMethods": ["GET", "HEAD"],
-  "AllowedHeaders": ["*"],
-  "ExposeHeaders": ["Content-Length", "Content-Range", "Accept-Ranges", "ETag"],
-  "MaxAgeSeconds": 3600
-}]
+[
+  {
+    "AllowedOrigins": ["*"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["Content-Length", "Content-Range", "Accept-Ranges", "ETag"],
+    "MaxAgeSeconds": 3600
+  },
+  {
+    "AllowedOrigins": ["https://videosync.dbpe.com.br", "http://localhost:8001"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["content-type", "cache-control"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
 ```
 
-Para restringir, troque `"*"` em `AllowedOrigins` pelo domínio do servidor (a página do celular vem dele; os sites que só embutem o iframe não precisam entrar).
+Troque os endereços da segunda regra pelos domínios onde o admin abre (sem barra no final). Para restringir a leitura, troque `"*"` da primeira regra pelo domínio do servidor (a página do celular vem dele; os sites que só embutem o iframe não precisam entrar).
+
+Sem a regra de PUT o admin continua funcionando: o envio passa pelo servidor, como antes (mais lento para arquivos grandes). "Separar vídeo e áudio" sempre passa pelo servidor, porque precisa do ffmpeg.
 
 ### 4. Usuário IAM do servidor
 
@@ -153,6 +167,8 @@ Reinicie o servidor. O console mostra `Media library: s3://MEU-BUCKET/audiosync/
 | `AccessDenied` ao abrir o link de um vídeo | Bucket policy não salva, ou Block Public Access ainda bloqueando policies |
 | Vídeo toca no totem, mas o celular não sincroniza | CORS do bucket faltando |
 | Envio no admin falha com "Falha no S3" | Credenciais ou permissões de escrita do usuário IAM |
+| Envio no admin funciona, mas o console do navegador mostra "Direct upload to S3 failed (bucket CORS?)" | Falta a regra de PUT no CORS do bucket, ou o domínio do admin não está nela (o envio passou pelo servidor) |
+| Envio direto falha com "O S3 recusou o envio (403)" | Relógio do servidor errado (link assinado "expirado") ou credenciais sem `s3:PutObject` |
 
 Arquivos alterados fora do admin (console da AWS, `s3-sync`) aparecem na biblioteca em até 1 minuto. Armazenamentos compatíveis (MinIO, Cloudflare R2) funcionam com `S3_ENDPOINT`.
 

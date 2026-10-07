@@ -6,7 +6,8 @@ const crypto = require("node:crypto");
 
 const etagOf = body => `"${crypto.createHash("md5").update(body).digest("hex")}"`;
 
-function startFakeS3() {
+// `cors: false` = bucket without CORS rules (browsers can't upload directly)
+function startFakeS3({ cors = true } = {}) {
   const objects = new Map(); // "bucket/key" → { body, contentType, cacheControl }
 
   const xmlEscape = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -18,6 +19,23 @@ function startFakeS3() {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://x");
     const path = decodeURIComponent(url.pathname.slice(1)).replace(/\/$/, "");
+
+    // Browser uploads with presigned URLs (bucket CORS allows the admin page)
+    if (cors) res.setHeader("Access-Control-Allow-Origin", "*");
+    if (req.method === "OPTIONS") {
+      if (!cors) { res.writeHead(403); return res.end(); }
+      res.writeHead(204, {
+        "Access-Control-Allow-Methods": "PUT",
+        "Access-Control-Allow-Headers": req.headers["access-control-request-headers"] || "",
+      });
+      return res.end();
+    }
+    // Presigned URL past its X-Amz-Expires → refused, like S3
+    const signedAt = url.searchParams.get("X-Amz-Date");
+    if (signedAt) {
+      const t = Date.parse(signedAt.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z"));
+      if (Date.now() > t + Number(url.searchParams.get("X-Amz-Expires")) * 1000) return xmlError(res, 403, "AccessDenied");
+    }
 
     // ListObjectsV2: GET /<bucket>?list-type=2&prefix=...
     if (req.method === "GET" && url.searchParams.get("list-type") === "2") {

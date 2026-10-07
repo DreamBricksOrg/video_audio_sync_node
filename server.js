@@ -669,6 +669,63 @@ app.post("/api/media", (req, res) => {
   receiveUpload(req, res, filename, 201);
 });
 
+// Direct upload (S3 mode): the browser sends the file straight to the bucket,
+// so big videos don't pass through this server.
+//   1. POST /api/media/upload-url { filename, size, overwrite?, replace? }
+//      → { direct: true, filename, url, headers, expires_in }  (local mode: { direct: false })
+//   2. browser PUTs the file to `url` with `headers`
+//   3. POST /api/media/upload-complete { filename } → the file joins the library
+// `replace` = existing file whose content is replaced (keeps its name).
+const DIRECT_UPLOAD_EXPIRES_S = 600;
+
+app.post("/api/media/upload-url", async (req, res) => {
+  if (!mediaStore.remote) return res.json({ direct: false });
+  const { filename: raw, size, overwrite, replace } = req.body || {};
+
+  let filename;
+  if (replace) {
+    if (!mediaExists(replace)) return res.status(404).json({ error: "Arquivo não encontrado" });
+    const ext = path.extname(String(raw || "")).toLowerCase();
+    if (ext !== path.extname(replace).toLowerCase()) {
+      return res.status(400).json({ error: `"${replace}" só pode ser substituído por outro arquivo ${path.extname(replace)}` });
+    }
+    filename = replace;
+  } else {
+    filename = sanitizeFilename(raw);
+    if (!filename) return res.status(400).json({ error: `Arquivo inválido. Permitidos: ${MEDIA_EXTS.join(", ")}` });
+    if (mediaStore.has(filename) && !overwrite) return res.status(409).json({ error: "O arquivo já existe", filename });
+  }
+
+  if (!Number.isInteger(size) || size <= 0) return res.status(400).json({ error: "Arquivo vazio" });
+  if (size > MAX_UPLOAD_BYTES) {
+    return res.status(413).json({ error: `Arquivo grande demais (máximo ${MAX_UPLOAD_BYTES / 1024 / 1024} MB)` });
+  }
+
+  try {
+    const signed = await storage.presignPut(filename, { size, expiresIn: DIRECT_UPLOAD_EXPIRES_S });
+    res.json({ direct: true, filename, url: signed.url, headers: signed.headers, expires_in: signed.expiresIn });
+  } catch (err) {
+    console.error(`[Media] Sign upload ${filename} failed:`, err.message);
+    res.status(502).json({ error: storageErrorMessage(err) });
+  }
+});
+
+app.post("/api/media/upload-complete", async (req, res) => {
+  if (!mediaStore.remote) return res.status(400).json({ error: "Envio direto só existe no modo S3" });
+  const filename = String((req.body || {}).filename || "");
+  if (sanitizeFilename(filename) !== filename) return res.status(400).json({ error: "Arquivo inválido" });
+  try {
+    const item = await mediaStore.registerUploaded(filename);
+    if (!item) return res.status(404).json({ error: "O arquivo não chegou ao S3. Tente enviar de novo." });
+    const type = mediaType(filename);
+    console.log(`[Media] Saved ${type} ${filename} (${(item.size / 1024 / 1024).toFixed(1)} MB, direct to S3)`);
+    res.status(201).json({ success: true, filename, type, size: item.size });
+  } catch (err) {
+    console.error(`[Media] Register ${filename} failed:`, err.message);
+    res.status(502).json({ error: storageErrorMessage(err) });
+  }
+});
+
 // Split: POST /api/media/split?filename=promo.mov[&overwrite=1]  (raw body)
 // Uploads a video WITH audio and saves it as <name>_video.<ext> + <name>_audio.mp3.
 // The original upload is not kept.

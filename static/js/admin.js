@@ -507,11 +507,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const item = createUploadItem(file);
         try {
-            const res = await sendFile(file, {
-                method: 'PUT',
-                url: `/api/media/${encodeURIComponent(target.filename)}`,
-            }, item.progress);
-            if (res.status === 200) item.done(`${res.body.filename} substituído`);
+            const res = (await sendDirect(file, { replace: target.filename }, item.progress)) ||
+                await sendFile(file, {
+                    method: 'PUT',
+                    url: `/api/media/${encodeURIComponent(target.filename)}`,
+                }, item.progress);
+            if (res.status === 200 || res.status === 201) item.done(`${res.body.filename} substituído`);
             else item.error(res.body.error || `Não foi possível substituir (${res.status})`);
         } catch (e) {
             item.error(e.message);
@@ -595,6 +596,51 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // S3 mode: the file goes straight to the bucket (short-lived URL signed by
+    // the server), then the server registers it. Resolves to null when the file
+    // should go through the server instead: local mode, or the bucket refused
+    // the browser (CORS not set up yet).
+    async function sendDirect(file, request, onProgress) {
+        const res = await api('/api/media/upload-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...request, filename: file.name, size: file.size }),
+        });
+        const signed = await res.json().catch(() => ({}));
+        if (!res.ok) return { status: res.status, body: signed };
+        if (!signed.direct) return null;
+
+        let status;
+        try {
+            status = await putToBucket(file, signed, onProgress);
+        } catch (e) {
+            console.warn('Direct upload to S3 failed (bucket CORS?) — sending through the server instead', e);
+            return null;
+        }
+        if (status !== 200) return { status: 502, body: { error: `O S3 recusou o envio (${status}). Tente de novo.` } };
+
+        const done = await api('/api/media/upload-complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: signed.filename }),
+        });
+        return { status: done.status, body: await done.json().catch(() => ({})) };
+    }
+
+    function putToBucket(file, { url, headers }, onProgress) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', url);
+            Object.entries(headers || {}).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+            xhr.upload.onprogress = e => {
+                if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+            };
+            xhr.onload = () => resolve(xhr.status);
+            xhr.onerror = () => reject(new Error('Erro de rede'));
+            xhr.send(file);
+        });
+    }
+
     async function uploadFile(file) {
         const item = createUploadItem(file);
         const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
@@ -606,14 +652,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const createUrl = overwrite =>
             `/api/media?filename=${encodeURIComponent(file.name)}${overwrite ? '&overwrite=1' : ''}`;
 
+        const send = async overwrite =>
+            (await sendDirect(file, { overwrite }, item.progress)) ||
+            sendFile(file, { method: 'POST', url: createUrl(overwrite) }, item.progress);
+
         try {
-            let res = await sendFile(file, { method: 'POST', url: createUrl(false) }, item.progress);
+            let res = await send(false);
             if (res.status === 409) {
                 if (!confirm(`"${res.body.filename}" já existe no servidor. Substituir?`)) {
                     item.error('Ignorado — o arquivo já existe');
                     return;
                 }
-                res = await sendFile(file, { method: 'POST', url: createUrl(true) }, item.progress);
+                res = await send(true);
             }
             if (res.status === 201) {
                 item.done(`Salvo como ${res.body.filename}`);
