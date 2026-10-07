@@ -121,6 +121,43 @@ paths:
         '502':
           description: The sessions could not be saved to the storage
 
+  /api/stats:
+    get:
+      summary: Daily Statistics
+      description: |
+        Counters per campaign per day (time zone `STATS_TIMEZONE`), kept for 90 days, shared by every
+        server on the same bucket/prefix. No personal data. `listen_seconds / listens` = average listening time.
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 90, default: 30 }
+      responses:
+        '200':
+          description: Oldest day first; days without activity have empty `campaigns`
+          content:
+            application/json:
+              example:
+                timezone: America/Sao_Paulo
+                days:
+                  - date: "2026-10-07"
+                    campaigns:
+                      totem1: { screens: 12, scans: 5, listeners: 4, listen_seconds: 420, listens: 4, sites: { "loja.com.br": 10, "(direto)": 2 } }
+
+  /api/stats.csv:
+    get:
+      summary: Statistics Spreadsheet
+      description: Same data as `/api/stats` as a `;`-separated CSV (opens in Excel), one row per day and campaign.
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 90, default: 30 }
+        - name: campaign
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: CSV file (download)
+
   /api/totems:
     get:
       summary: List Registered Totems

@@ -36,6 +36,7 @@ const { createS3Storage } = require("./lib/s3-storage");
 const { createLocalStore, createS3Store } = require("./lib/media-store");
 const { createFileConfigStore, createS3ConfigStore, isConfigConflict } = require("./lib/config-store");
 const { createSyncedDoc, SyncConflictError } = require("./lib/synced-doc");
+const { createStats, toCsv } = require("./lib/stats");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 // Load .env (Node >= 20.12 built-in); real env vars take precedence.
@@ -186,6 +187,50 @@ function readLocalTotems() {
 const configStore = storage.enabled
   ? createS3ConfigStore({ storage, seed: readLocalTotems })
   : createFileConfigStore({ file: TOTEMS_FILE });
+
+// ── Statistics: daily counters per campaign (lib/stats.js) ─────────────────
+// One file per day: stats/YYYY-MM-DD.json in the bucket (shared by every
+// server), or in a stats/ folder next to totems.json in local mode.
+const STATS_DIR = process.env.STATS_DIR || path.join(path.dirname(TOTEMS_FILE), "stats");
+const STATS_TIMEZONE = process.env.STATS_TIMEZONE || "America/Sao_Paulo";
+const STATS_FLUSH_MS = parseInt(process.env.STATS_FLUSH_MS, 10) || 60000;
+const STATS_MAX_DAYS = 90;
+const statsName = day => `stats/${day}.json`;
+const statsFile = day => path.join(STATS_DIR, `${day}.json`);
+
+const stats = createStats({
+  timeZone: STATS_TIMEZONE,
+  retentionDays: STATS_MAX_DAYS,
+  // Only campaigns that exist: junk ?screen= values don't pile up in the files
+  accept: campaign => !!totemsConf[campaign],
+  openDay: day => createSyncedDoc({
+    store: storage.enabled
+      ? createS3ConfigStore({ storage, name: statsName(day) })
+      : createFileConfigStore({ file: statsFile(day) }),
+    isConflict: isConfigConflict,
+  }),
+  async readDay(day) {
+    if (storage.enabled) {
+      const found = await storage.getText(statsName(day));
+      return found && found.body ? JSON.parse(found.body) : null;
+    }
+    return fs.existsSync(statsFile(day)) ? JSON.parse(fs.readFileSync(statsFile(day), "utf-8")) : null;
+  },
+  async removeDay(day) {
+    if (storage.enabled) await storage.remove(statsName(day));
+    else fs.rmSync(statsFile(day), { force: true });
+  },
+});
+if (!storage.enabled) fs.mkdirSync(STATS_DIR, { recursive: true });
+
+async function flushStats() {
+  try {
+    await stats.flush();
+  } catch (e) {
+    console.error("[Stats] Save failed (kept for the next try):", e.message);
+  }
+}
+setInterval(flushStats, STATS_FLUSH_MS).unref();
 
 // Map from totem Id => configuration { video, audio, promo }
 let totemsConf = {};
@@ -528,6 +573,38 @@ app.post("/api/sessions/revoke-others", async (req, res) => {
   } catch (err) {
     console.error("[Auth] Could not end the sessions:", err.message);
     res.status(502).json({ error: "Não foi possível desconectar os outros aparelhos. Tente de novo." });
+  }
+});
+
+// ── Statistics ──────────────────────────────────────────────────────────────
+// GET /api/stats?days=30 → { timezone, days: [{ date, campaigns }] } (oldest first)
+// GET /api/stats.csv?days=30[&campaign=id] → spreadsheet (; separated)
+async function statsDays(req) {
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), STATS_MAX_DAYS);
+  await flushStats(); // include what this server counted in the last minute
+  return stats.read(days);
+}
+
+app.get("/api/stats", async (req, res) => {
+  try {
+    res.json({ timezone: STATS_TIMEZONE, days: await statsDays(req) });
+  } catch (err) {
+    console.error("[Stats] Read failed:", err.message);
+    res.status(502).json({ error: storageErrorMessage(err) });
+  }
+});
+
+app.get("/api/stats.csv", async (req, res) => {
+  try {
+    const campaign = req.query.campaign ? String(req.query.campaign) : "";
+    const days = await statsDays(req);
+    const name = `estatisticas-${campaign ? `${campaign.replace(/[^\w-]/g, "_")}-` : ""}${days[0].date}-a-${days[days.length - 1].date}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    res.send(toCsv(days, campaign));
+  } catch (err) {
+    console.error("[Stats] CSV failed:", err.message);
+    res.status(502).json({ error: storageErrorMessage(err) });
   }
 });
 
@@ -1192,6 +1269,8 @@ function handleScreen(ws, campaign, instanceId, ip) {
 
   const inst = instances.register(campaign, instanceId, ws);
   console.log(`[Screen] ${campaign}/${inst.id} connected`);
+  // A new screen counts once (reconnects of the same instance don't)
+  let counted = reconnecting;
 
   ws.on("message", (raw) => {
     try {
@@ -1201,6 +1280,11 @@ function handleScreen(ws, campaign, instanceId, ip) {
         // Periodic position: recalculate start_time with the SERVER clock
         instances.updatePosition(inst, data.current_time);
         return;
+      }
+
+      if (!counted) {
+        counted = true;
+        stats.screenOpened(campaign, data.site);
       }
 
       // Registration: the screen sends its video.currentTime
@@ -1262,6 +1346,7 @@ function handleMobile(ws, campaign, instanceId, ip) {
     promo: promoFor(campaign),
   });
 
+  stats.scan(campaign);
   // Only the scanned screen hides its QR
   if (inst.ws) safeSend(inst.ws, { type: "mobile_connected" });
 
@@ -1290,6 +1375,8 @@ function handleDrift(ws, campaign, instanceId, ip) {
 
   inst.drifts.add(ws);
   phonesPerIp.set(ip, (phonesPerIp.get(ip) || 0) + 1);
+  const listeningSince = Date.now();
+  stats.listenStart(campaign);
 
   const interval = setInterval(() => {
     const session = inst.session;
@@ -1327,6 +1414,7 @@ function handleDrift(ws, campaign, instanceId, ip) {
     cleaned = true;
     clearInterval(interval);
     inst.drifts.delete(ws);
+    stats.listenEnd(campaign, (Date.now() - listeningSince) / 1000);
     const left = (phonesPerIp.get(ip) || 1) - 1;
     if (left > 0) phonesPerIp.set(ip, left);
     else phonesPerIp.delete(ip);
@@ -1417,3 +1505,17 @@ Promise.all([
     console.warn("  ⚠️  SESSION_SECRET not set in .env — admin sessions end when the server restarts\n");
   }
 }));
+
+// Restart/deploy (pm2, systemd, Ctrl+C): save the last minute of statistics first
+let shuttingDown = false;
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    if (shuttingDown) process.exit(0);
+    shuttingDown = true;
+    const timeout = setTimeout(() => process.exit(0), 5000);
+    flushStats().finally(() => {
+      clearTimeout(timeout);
+      process.exit(0);
+    });
+  });
+}

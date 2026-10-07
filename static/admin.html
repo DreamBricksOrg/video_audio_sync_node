@@ -40,6 +40,51 @@
             <!-- Populated via JS -->
         </main>
 
+        <section class="media-section stats-section">
+            <div class="section-header">
+                <div>
+                    <h2>Estatísticas</h2>
+                    <p class="page-subtitle">Contagem por dia (horário de Brasília), guardada por 90 dias. Só números, sem dados pessoais.</p>
+                </div>
+                <div class="stats-controls">
+                    <select id="statsCampaign" class="custom-select" aria-label="Campanha">
+                        <option value="">Todas as campanhas</option>
+                    </select>
+                    <select id="statsDays" class="custom-select" aria-label="Período">
+                        <option value="7">Últimos 7 dias</option>
+                        <option value="30" selected>Últimos 30 dias</option>
+                        <option value="90">Últimos 90 dias</option>
+                    </select>
+                    <a id="statsCsv" class="btn btn-secondary" href="/api/stats.csv?days=30" download>
+                        <i data-lucide="download"></i> Exportar CSV
+                    </a>
+                </div>
+            </div>
+
+            <div class="stats-cards">
+                <button type="button" class="stat-card active" data-metric="screens">
+                    <span class="stat-label">Telas abertas</span><span class="stat-value">0</span>
+                </button>
+                <button type="button" class="stat-card" data-metric="scans">
+                    <span class="stat-label">Escaneamentos</span><span class="stat-value">0</span>
+                </button>
+                <button type="button" class="stat-card" data-metric="listeners">
+                    <span class="stat-label">Celulares ouvindo</span><span class="stat-value">0</span>
+                </button>
+                <button type="button" class="stat-card" data-metric="avg">
+                    <span class="stat-label">Tempo médio ouvindo</span><span class="stat-value">0s</span>
+                </button>
+            </div>
+            <p id="statsError" class="stats-error" hidden></p>
+            <div id="statsChart" class="stats-chart" role="img"></div>
+
+            <h3 class="stats-subtitle">Sites onde as telas foram abertas</h3>
+            <table class="stats-sites">
+                <thead><tr><th>Site</th><th>Telas abertas</th></tr></thead>
+                <tbody id="statsSites"></tbody>
+            </table>
+        </section>
+
         <section class="media-section">
             <div class="section-header">
                 <div>

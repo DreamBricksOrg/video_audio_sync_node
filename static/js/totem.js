@@ -148,6 +148,18 @@ video.addEventListener("playing", () => {
     localAudio.play().catch(err => console.error("[Totem] Local audio resume failed", err));
 });
 
+// Host name of the site embedding this screen, for the admin statistics (no
+// path or query: just "loja.com.br"). Empty when the page is opened directly.
+const EMBED_SITE = (() => {
+    if (window.top === window) return "";
+    try {
+        const parent = (location.ancestorOrigins && location.ancestorOrigins[0]) || document.referrer;
+        return parent ? new URL(parent).hostname : "?";
+    } catch (_) {
+        return "?";
+    }
+})();
+
 // ── Register session (WS stays open for notifications) ─
 let screenWs = null;
 
@@ -168,6 +180,7 @@ function registerSession() {
             duration: video.duration || 30,
             mode: "sync",
             drift_enabled: true,
+            site: EMBED_SITE,
         }));
         console.log(`[Totem] Session registered — ${video.duration}s, pos: ${video.currentTime.toFixed(2)}s`);
     };

@@ -99,3 +99,32 @@ test("logout ends the session; 'disconnect others' logs out the other browsers",
     own.stop();
   }
 });
+
+test("statistics: today's screens and scans, per campaign, with CSV export", async ({ page }) => {
+  const { registerScreen, mobileSync } = require("../tests/helpers/ws");
+  const screen = await registerScreen(server.wsBase, "ok", { instance: "stats-a", site: "loja.com.br" });
+  await mobileSync(server.wsBase, "ok", "stats-a");
+  screen.close();
+
+  await login(page);
+  const value = metric => page.locator(`.stat-card[data-metric="${metric}"] .stat-value`);
+  await expect(value("screens")).toHaveText("1");
+  await expect(value("scans")).toHaveText("1");
+  await expect(page.locator("#statsSites")).toContainText("loja.com.br");
+  await expect(page.locator("#statsChart .bar-col")).toHaveCount(30);
+
+  await page.locator(".stat-card[data-metric='scans']").click();
+  await expect(page.locator(".stat-card[data-metric='scans']")).toHaveClass(/active/);
+
+  await page.locator("#statsDays").selectOption("7");
+  await expect(page.locator("#statsChart .bar-col")).toHaveCount(7);
+  await page.locator("#statsCampaign").selectOption("broken");
+  await expect(value("scans")).toHaveText("0");
+  await expect(page.locator("#statsCsv")).toHaveAttribute("href", "/api/stats.csv?days=7&campaign=broken");
+
+  await page.locator("#statsCampaign").selectOption("ok");
+  const download = page.waitForEvent("download");
+  await page.locator("#statsCsv").click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/^estatisticas-ok-.*\.csv$/);
+});

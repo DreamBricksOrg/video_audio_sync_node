@@ -50,6 +50,8 @@ document.addEventListener('DOMContentLoaded', () => {
         await fetchTotems();
         // Poll for statuses
         setInterval(fetchTotems, 5000);
+        loadStats();
+        setInterval(loadStats, 60000);
     }
 
     async function loadSession() {
@@ -1043,6 +1045,110 @@ document.addEventListener('DOMContentLoaded', () => {
     qrModal.addEventListener('click', (e) => {
         if(e.target === qrModal) qrModal.classList.add('fade-out');
     });
+
+    // ── Statistics (per day, all servers) ──
+    const STAT_METRICS = {
+        screens: { label: 'Telas abertas', value: c => c.screens },
+        scans: { label: 'Escaneamentos', value: c => c.scans },
+        listeners: { label: 'Celulares ouvindo', value: c => c.listeners },
+        avg: { label: 'Tempo médio ouvindo', value: c => (c.listens ? c.listen_seconds / c.listens : 0), time: true },
+    };
+    const statsCampaign = document.getElementById('statsCampaign');
+    const statsDays = document.getElementById('statsDays');
+    const statsCsv = document.getElementById('statsCsv');
+    const statsError = document.getElementById('statsError');
+    let statsData = null;
+    let statsMetric = 'screens';
+
+    const emptyCounters = () => ({ screens: 0, scans: 0, listeners: 0, listen_seconds: 0, listens: 0, sites: {} });
+
+    function addCounters(total, c) {
+        for (const k of ['screens', 'scans', 'listeners', 'listen_seconds', 'listens']) total[k] += c[k] || 0;
+        for (const [site, n] of Object.entries(c.sites || {})) total.sites[site] = (total.sites[site] || 0) + n;
+        return total;
+    }
+
+    // One campaign, or all of them added up
+    function dayCounters(day, campaign) {
+        const entries = Object.entries(day.campaigns).filter(([id]) => !campaign || id === campaign);
+        return entries.reduce((total, [, c]) => addCounters(total, c), emptyCounters());
+    }
+
+    function formatDuration(seconds) {
+        const s = Math.round(seconds);
+        if (s < 60) return `${s}s`;
+        return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+    }
+
+    const formatStat = (metric, v) => (STAT_METRICS[metric].time ? formatDuration(v) : v.toLocaleString('pt-BR'));
+    const shortDate = date => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
+
+    async function loadStats() {
+        const days = statsDays.value;
+        try {
+            const res = await api(`/api/stats?days=${days}`);
+            const body = await res.json();
+            if (!res.ok) throw new Error(body.error || `Erro ${res.status}`);
+            statsData = body;
+            statsError.hidden = true;
+        } catch (e) {
+            statsError.textContent = `Não foi possível carregar as estatísticas: ${e.message}`;
+            statsError.hidden = false;
+            return;
+        }
+        // Campaign list: current campaigns plus any that only exist in old days
+        const ids = new Set(statsData.days.flatMap(d => Object.keys(d.campaigns)));
+        document.querySelectorAll('.totem-card .totem-id').forEach(el => ids.add(el.textContent));
+        const selected = statsCampaign.value;
+        statsCampaign.innerHTML = '<option value="">Todas as campanhas</option>' +
+            [...ids].sort().map(id => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join('');
+        statsCampaign.value = ids.has(selected) ? selected : '';
+        renderStats();
+    }
+
+    function renderStats() {
+        if (!statsData) return;
+        const campaign = statsCampaign.value;
+        const perDay = statsData.days.map(d => ({ date: d.date, c: dayCounters(d, campaign) }));
+        const total = perDay.reduce((t, d) => addCounters(t, d.c), emptyCounters());
+
+        statsCsv.href = `/api/stats.csv?days=${statsDays.value}${campaign ? `&campaign=${encodeURIComponent(campaign)}` : ''}`;
+
+        document.querySelectorAll('.stat-card').forEach(card => {
+            const metric = card.dataset.metric;
+            card.querySelector('.stat-value').textContent = formatStat(metric, STAT_METRICS[metric].value(total));
+            card.classList.toggle('active', metric === statsMetric);
+            card.setAttribute('aria-pressed', metric === statsMetric);
+        });
+
+        // Daily bars of the selected metric
+        const values = perDay.map(d => STAT_METRICS[statsMetric].value(d.c));
+        const max = Math.max(...values, 1);
+        const chart = document.getElementById('statsChart');
+        // A date label every ~48px, whatever the screen width
+        const labelEvery = Math.ceil(perDay.length / Math.max(Math.floor(chart.clientWidth / 48), 2));
+        chart.setAttribute('aria-label', `${STAT_METRICS[statsMetric].label} por dia`);
+        chart.innerHTML = perDay.map((d, i) => {
+            const v = values[i];
+            const tip = `${shortDate(d.date)}: ${formatStat(statsMetric, v)}`;
+            return `<div class="bar-col" title="${escapeHtml(tip)}">
+                <div class="bar" style="height:${Math.max((v / max) * 100, v ? 2 : 0)}%"></div>
+                <span class="bar-label">${(perDay.length - 1 - i) % labelEvery === 0 ? shortDate(d.date) : ''}</span>
+            </div>`;
+        }).join('');
+
+        const sites = Object.entries(total.sites).sort((a, b) => b[1] - a[1]);
+        document.getElementById('statsSites').innerHTML = sites.length
+            ? sites.map(([site, n]) => `<tr><td>${escapeHtml(site)}</td><td>${n.toLocaleString('pt-BR')}</td></tr>`).join('')
+            : '<tr><td colspan="2" class="empty">Nenhuma tela aberta no período.</td></tr>';
+    }
+
+    document.querySelectorAll('.stat-card').forEach(card => card.addEventListener('click', () => {
+        statsMetric = card.dataset.metric;
+        renderStats();
+    }));
+    statsCampaign.addEventListener('change', renderStats);
+    statsDays.addEventListener('change', loadStats);
 
     init();
 });

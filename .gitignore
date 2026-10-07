@@ -36,3 +36,6 @@ playwright-report/
 
 # Admin sessions (local mode)
 sessions.json
+
+# Estatísticas do admin (modo local; no modo S3 ficam no bucket em <prefixo>/stats/)
+stats/

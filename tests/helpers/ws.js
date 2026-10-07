@@ -40,10 +40,10 @@ function waitFor(ws, messages, type, timeout) {
 }
 
 // Registers a totem screen like static/js/totem.js does.
-async function registerScreen(wsBase, campaign, { instance, currentTime = 0, duration = 30 } = {}) {
+async function registerScreen(wsBase, campaign, { instance, currentTime = 0, duration = 30, site } = {}) {
   const query = instance ? `?instance=${encodeURIComponent(instance)}` : "";
   const screen = await connect(`${wsBase}/ws/screen/${campaign}${query}`);
-  screen.send({ current_time: currentTime, duration, mode: "sync", drift_enabled: true });
+  screen.send({ current_time: currentTime, duration, mode: "sync", drift_enabled: true, ...(site !== undefined ? { site } : {}) });
   screen.session = await screen.next("session_created");
   return screen;
 }
