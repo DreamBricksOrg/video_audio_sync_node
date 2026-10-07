@@ -62,6 +62,9 @@ const MAX_MOBILE_PER_SCREEN = 50;
 // Abuse protection for public embeds
 const MAX_SCREENS_PER_IP = parseInt(process.env.MAX_SCREENS_PER_IP, 10) || 20;
 const MAX_INSTANCES_PER_CAMPAIGN = parseInt(process.env.MAX_INSTANCES_PER_CAMPAIGN, 10) || 2000;
+// Phones: many share one IP (venue Wi-Fi, carrier NAT), so these are generous
+const MAX_PHONES_PER_IP = parseInt(process.env.MAX_PHONES_PER_IP, 10) || 50;                    // listening at once
+const MAX_SYNCS_PER_IP_PER_MINUTE = parseInt(process.env.MAX_SYNCS_PER_IP_PER_MINUTE, 10) || 120;
 // Behind a proxy/tunnel (ngrok, Nginx, Cloudflare) set TRUST_PROXY=1 to use X-Forwarded-For
 const TRUST_PROXY = process.env.TRUST_PROXY === "1";
 const ASSETS_DIR = process.env.ASSETS_DIR || path.join(__dirname, "assets");
@@ -971,6 +974,25 @@ const wss = new WebSocketServer({ noServer: true });
 
 // ── WS route matching ───────────────────────────────────────────────────────
 const screensPerIp = new Map(); // ip → open screen sockets
+const phonesPerIp = new Map();  // ip → open drift sockets (phones listening)
+const syncsPerIp = new Map();   // ip → { count, windowStart } (sync attempts per minute)
+
+// Fixed one-minute window per IP; returns false when over the limit
+function allowSync(ip) {
+  const now = Date.now();
+  const entry = syncsPerIp.get(ip);
+  if (!entry || now - entry.windowStart >= 60000) {
+    syncsPerIp.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  entry.count++;
+  return entry.count <= MAX_SYNCS_PER_IP_PER_MINUTE;
+}
+// Forget idle windows so the map doesn't grow forever
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, e] of syncsPerIp) if (now - e.windowStart >= 60000) syncsPerIp.delete(ip);
+}, 60000).unref();
 
 function clientIp(req) {
   if (TRUST_PROXY && req.headers["x-forwarded-for"]) {
@@ -1004,8 +1026,8 @@ wss.on("connection", (ws, req) => {
   const instanceId = req._instanceId;
 
   if (route === "screen") handleScreen(ws, campaign, instanceId, req._ip);
-  else if (route === "mobile") handleMobile(ws, campaign, instanceId);
-  else if (route === "drift") handleDrift(ws, campaign, instanceId);
+  else if (route === "mobile") handleMobile(ws, campaign, instanceId, req._ip);
+  else if (route === "drift") handleDrift(ws, campaign, instanceId, req._ip);
 });
 
 // ── /ws/screen/:campaign?instance=ID — a screen playing the campaign ────────
@@ -1068,7 +1090,11 @@ function handleScreen(ws, campaign, instanceId, ip) {
 }
 
 // ── /ws/mobile/:campaign?instance=ID — phone sync (fire-and-close) ──────────
-function handleMobile(ws, campaign, instanceId) {
+function handleMobile(ws, campaign, instanceId, ip) {
+  if ((TRUST_PROXY || !isLoopback(ip)) && !allowSync(ip)) {
+    ws.close(4029, "Too many syncs from this address");
+    return;
+  }
   const inst = instances.resolve(campaign, instanceId);
   if (!inst) {
     safeSend(ws, { type: "error", detail: "Session not found" });
@@ -1099,7 +1125,12 @@ function handleMobile(ws, campaign, instanceId) {
 }
 
 // ── /ws/drift/:campaign?instance=ID — drift correction for one phone ───────
-function handleDrift(ws, campaign, instanceId) {
+function handleDrift(ws, campaign, instanceId, ip) {
+  const limitIp = TRUST_PROXY || !isLoopback(ip);
+  if (limitIp && (phonesPerIp.get(ip) || 0) >= MAX_PHONES_PER_IP) {
+    ws.close(4029, "Too many phones from this address");
+    return;
+  }
   const inst = instances.resolve(campaign, instanceId);
   if (!inst) {
     safeSend(ws, { type: "error", detail: "Session not found" });
@@ -1113,6 +1144,7 @@ function handleDrift(ws, campaign, instanceId) {
   }
 
   inst.drifts.add(ws);
+  phonesPerIp.set(ip, (phonesPerIp.get(ip) || 0) + 1);
 
   const interval = setInterval(() => {
     const session = inst.session;
@@ -1144,9 +1176,15 @@ function handleDrift(ws, campaign, instanceId) {
     } catch (_) {}
   });
 
+  let cleaned = false;
   const cleanup = () => {
+    if (cleaned) return; // "error" and "close" can both fire
+    cleaned = true;
     clearInterval(interval);
     inst.drifts.delete(ws);
+    const left = (phonesPerIp.get(ip) || 1) - 1;
+    if (left > 0) phonesPerIp.set(ip, left);
+    else phonesPerIp.delete(ip);
   };
   ws.on("error", cleanup);
   ws.on("close", cleanup);

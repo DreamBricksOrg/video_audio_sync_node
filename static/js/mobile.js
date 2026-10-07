@@ -241,6 +241,14 @@ function connectSync() {
             tapSub.textContent = "Tentando novamente...";
             tapSub.classList.remove("hidden");
             setTimeout(connectSync, 3000);
+        } else if (e.code === 4029) {
+            // Too many phones on this network right now: wait and try again
+            tapText.textContent = "Muitas conexões agora";
+            tapIcon.innerHTML = '<i data-lucide="clock"></i>';
+            lucide.createIcons();
+            tapSub.textContent = "Tentando de novo em 30 segundos...";
+            tapSub.classList.remove("hidden");
+            setTimeout(connectSync, 30000);
         }
     };
 }

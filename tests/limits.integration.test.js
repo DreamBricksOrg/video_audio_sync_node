@@ -84,3 +84,57 @@ describe("per-campaign limit", () => {
     }
   });
 });
+
+// Phones: many share one IP (venue Wi-Fi, carrier NAT), so limits are generous
+describe("per-IP phone limits", () => {
+  let server, screen;
+  before(async () => {
+    server = await startServer({
+      totems: { camp: { video: "v.mp4", audio: "a.mp3" } },
+      env: { TRUST_PROXY: "1", MAX_PHONES_PER_IP: "2", MAX_SYNCS_PER_IP_PER_MINUTE: "3" },
+    });
+    screen = await openScreen(server.wsBase, "camp", "phones", "10.9.0.1");
+  });
+  after(() => {
+    screen.ws.close();
+    server.stop();
+  });
+
+  const sync = ip => new Promise(resolve => {
+    const ws = new WebSocket(`${server.wsBase}/ws/mobile/camp?instance=phones`, { headers: { "X-Forwarded-For": ip } });
+    ws.on("close", code => resolve(code));
+    ws.on("error", () => {});
+  });
+  const drift = ip => new Promise(resolve => {
+    const ws = new WebSocket(`${server.wsBase}/ws/drift/camp?instance=phones`, { headers: { "X-Forwarded-For": ip } });
+    let opened = false;
+    ws.on("open", () => { opened = true; setTimeout(() => resolve({ result: "ok", ws }), 150); });
+    ws.on("close", code => { if (!opened || code === 4029) resolve({ result: code, ws }); });
+    ws.on("error", () => {});
+  });
+
+  test("too many syncs per minute from one IP are refused with 4029", async () => {
+    const codes = [];
+    for (let i = 0; i < 4; i++) codes.push(await sync("10.9.1.1"));
+    assert.deepEqual(codes, [1000, 1000, 1000, 4029]);
+    assert.equal(await sync("10.9.1.2"), 1000, "other IPs are not affected");
+  });
+
+  test("too many phones listening from one IP are refused; closing frees a slot", async () => {
+    const a = await drift("10.9.2.1");
+    const b = await drift("10.9.2.1");
+    const c = await drift("10.9.2.1");
+    try {
+      assert.equal(a.result, "ok");
+      assert.equal(b.result, "ok");
+      assert.equal(c.result, 4029);
+      b.ws.close();
+      await new Promise(r => setTimeout(r, 200));
+      const d = await drift("10.9.2.1");
+      assert.equal(d.result, "ok");
+      d.ws.close();
+    } finally {
+      a.ws.close();
+    }
+  });
+});
