@@ -33,3 +33,6 @@ MELHORIAS.md
 # Playwright
 test-results/
 playwright-report/
+
+# Admin sessions (local mode)
+sessions.json

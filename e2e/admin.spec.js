@@ -59,3 +59,43 @@ test("uploading a file through the admin adds it to the library", async ({ page 
   await page.locator("#mediaInput").setInputFiles({ name: "novo spot.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("x") });
   await expect(page.locator("#audioList")).toContainText("novo_spot.mp3");
 });
+
+test("logout ends the session; 'disconnect others' logs out the other browsers", async ({ browser }) => {
+  // Fresh server: other tests' logins would count as "other devices"
+  const own = await startServer();
+  const loginAt = async page => {
+    await page.goto(`${own.base}/login`);
+    await page.locator("#username").fill("test");
+    await page.locator("#password").fill("test-pass");
+    await page.locator("#loginBtn").click();
+    await expect(page).toHaveURL(/\/admin$/);
+  };
+  const ctxA = await browser.newContext();
+  const ctxB = await browser.newContext();
+  try {
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await loginAt(a);
+    await expect(a.locator("#revokeOthersBtn")).toBeHidden();
+    await loginAt(b);
+    await b.reload();
+    await expect(b.locator("#revokeOthersBtn")).toContainText("(1)");
+
+    b.on("dialog", d => d.accept());
+    await b.locator("#revokeOthersBtn").click();
+    await expect(b.locator("#revokeOthersBtn")).toBeHidden();
+    await a.goto(`${own.base}/admin`);
+    await expect(a).toHaveURL(/\/login/);
+
+    // Logout: the cookie the browser had no longer works, even if copied
+    const [cookie] = await ctxB.cookies();
+    await b.locator("#logoutBtn").click();
+    await expect(b).toHaveURL(/\/login/);
+    const r = await fetch(`${own.base}/api/session`, { headers: { Cookie: `${cookie.name}=${cookie.value}` } });
+    expect(r.status).toBe(401);
+  } finally {
+    await ctxA.close();
+    await ctxB.close();
+    own.stop();
+  }
+});

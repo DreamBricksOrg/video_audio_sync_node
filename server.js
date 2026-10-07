@@ -35,6 +35,7 @@ const { createMediaUrl, defaultS3BaseUrl } = require("./lib/media-url");
 const { createS3Storage } = require("./lib/s3-storage");
 const { createLocalStore, createS3Store } = require("./lib/media-store");
 const { createFileConfigStore, createS3ConfigStore, isConfigConflict } = require("./lib/config-store");
+const { createSyncedDoc, SyncConflictError } = require("./lib/synced-doc");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 // Load .env (Node >= 20.12 built-in); real env vars take precedence.
@@ -211,13 +212,18 @@ function applyRemoteConfig(next) {
   }
 }
 
+const configDoc = createSyncedDoc({
+  store: configStore,
+  isConflict: isConfigConflict,
+  onChange: (prev, next) => {
+    applyRemoteConfig(next);
+    console.log("[Config] Reloaded (changed by another server)");
+  },
+});
+
 async function refreshConfig() {
   try {
-    const fresh = await configStore.refresh();
-    if (fresh) {
-      applyRemoteConfig(fresh);
-      console.log("[Config] Reloaded (changed by another server)");
-    }
+    await configDoc.refresh();
   } catch (e) {
     console.error("[Config] Refresh failed:", e.message);
   }
@@ -226,29 +232,17 @@ async function refreshConfig() {
 // The only way to change the config: re-read the latest version, apply
 // mutate(conf) to a copy, save it conditionally, and retry if another server
 // saved in between. mutate may throw HttpError; its return value is passed on.
-// Calls are queued so this process never races with itself.
-let configQueue = Promise.resolve();
-function mutateConfig(mutate) {
-  const run = async () => {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const fresh = await configStore.refresh();
-      if (fresh) applyRemoteConfig(fresh);
-      const next = structuredClone(totemsConf);
-      const result = mutate(next);
-      try {
-        await configStore.save(next);
-        totemsConf = next;
-        return result;
-      } catch (err) {
-        if (!isConfigConflict(err)) throw err;
-        console.warn("[Config] Changed by another server meanwhile — retrying");
-      }
+async function mutateConfig(mutate) {
+  try {
+    return await configDoc.mutate(mutate);
+  } catch (err) {
+    if (err instanceof SyncConflictError) {
+      throw new HttpError(409, "A configuração foi alterada ao mesmo tempo em outro servidor. Tente de novo.");
     }
-    throw new HttpError(409, "A configuração foi alterada ao mesmo tempo em outro servidor. Tente de novo.");
-  };
-  const result = configQueue.then(run, run);
-  configQueue = result.catch(() => {});
-  return result;
+    throw err;
+  } finally {
+    totemsConf = configDoc.get();
+  }
 }
 
 // HttpError → its status; anything else = the config storage failed
@@ -336,14 +330,53 @@ function sanitizePromo(input) {
 }
 
 // ── Admin auth ──────────────────────────────────────────────────────────────
-// Stateless signed cookie, valid until logout. The signature includes the
-// password, so changing ADMIN_PASSWORD (or SESSION_SECRET) logs everyone out.
+// The cookie holds a random session id. Sessions live in sessions.json (next to
+// totems.json, or in the bucket next to the config in S3 mode, so every server
+// shares them), keyed by a hash of the id: reading the file doesn't give
+// anyone a usable cookie. Logout deletes the session, so a copied cookie stops
+// working. Each session records a tag of the credentials, so changing
+// ADMIN_PASSWORD (or SESSION_SECRET) still logs everyone out.
+const SESSIONS_NAME = "sessions.json";
+const MAX_SESSIONS = 100;
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{43}$/;
+
+const sessionStore = storage.enabled
+  ? createS3ConfigStore({ storage, name: SESSIONS_NAME })
+  : createFileConfigStore({ file: process.env.SESSIONS_FILE || path.join(path.dirname(TOTEMS_FILE), SESSIONS_NAME) });
+const sessionsDoc = createSyncedDoc({ store: sessionStore, isConflict: isConfigConflict });
+
 function sign(value) {
   return crypto.createHmac("sha256", SESSION_SECRET).update(value).digest("base64url");
 }
 
-function makeSessionToken(user) {
-  return `${Buffer.from(user).toString("base64url")}.${sign(`${user}:${ADMIN_PASSWORD}`)}`;
+const credentialsTag = () => sign(`${ADMIN_USER}:${ADMIN_PASSWORD}`).slice(0, 22);
+const sessionKey = id => crypto.createHash("sha256").update(id).digest("base64url");
+
+async function refreshSessions() {
+  try {
+    await sessionsDoc.refresh();
+  } catch (e) {
+    console.error("[Auth] Sessions refresh failed:", e.message);
+  }
+}
+
+// An unknown id may be a login made on another server a moment ago: re-read
+// the shared file. Callers share one pending re-read, at most one a second, so
+// junk cookies only slow down their own answers and can't flood S3.
+let lastForcedRefresh = 0;
+let pendingRefresh = null;
+function refreshSessionsForUnknown() {
+  if (!sessionStore.remote) return Promise.resolve();
+  if (!pendingRefresh) {
+    const wait = Math.max(0, lastForcedRefresh + 1000 - Date.now());
+    pendingRefresh = new Promise(r => setTimeout(r, wait))
+      .then(() => {
+        lastForcedRefresh = Date.now();
+        return refreshSessions();
+      })
+      .finally(() => { pendingRefresh = null; });
+  }
+  return pendingRefresh;
 }
 
 function safeEqual(a, b) {
@@ -361,10 +394,19 @@ function getCookie(req, name) {
   return null;
 }
 
-function isAuthenticated(req) {
-  if (!ADMIN_USER || !ADMIN_PASSWORD) return false;
-  const token = getCookie(req, SESSION_COOKIE);
-  return !!token && safeEqual(token, makeSessionToken(ADMIN_USER));
+// The session's key when the request carries a valid session, else null
+async function currentSession(req) {
+  if (!ADMIN_USER || !ADMIN_PASSWORD) return null;
+  const id = getCookie(req, SESSION_COOKIE);
+  if (!id || !SESSION_ID_RE.test(id)) return null;
+  const key = sessionKey(id);
+  const valid = () => {
+    const s = sessionsDoc.get()[key];
+    return !!s && safeEqual(s.auth, credentialsTag());
+  };
+  if (valid()) return key;
+  await refreshSessionsForUnknown();
+  return valid() ? key : null;
 }
 
 function isHttps(req) {
@@ -381,9 +423,14 @@ function setSessionCookie(req, res, value, maxAgeSeconds) {
 }
 
 function requireAuth(req, res, next) {
-  if (isAuthenticated(req)) return next();
-  if (req.originalUrl.startsWith("/api/")) return res.status(401).json({ error: "Não autenticado" });
-  res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
+  currentSession(req).then(key => {
+    if (key) {
+      req.sessionKey = key;
+      return next();
+    }
+    if (req.originalUrl.startsWith("/api/")) return res.status(401).json({ error: "Não autenticado" });
+    res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
+  }, next);
 }
 
 // Brute-force guard: lock an IP for a minute after repeated failures
@@ -392,12 +439,12 @@ const loginFailures = new Map(); // ip → { count, lockedUntil }
 // Standalone QR iframe: follows the totem iframe on the same page (public)
 app.get("/qr", (req, res) => res.sendFile(path.join(STATIC_DIR, "qr.html")));
 
-app.get("/login", (req, res) => {
-  if (isAuthenticated(req)) return res.redirect("/admin");
+app.get("/login", async (req, res) => {
+  if (await currentSession(req)) return res.redirect("/admin");
   res.sendFile(path.join(STATIC_DIR, "login.html"));
 });
 
-app.post("/api/login", (req, res) => {
+app.post("/api/login", async (req, res) => {
   if (!ADMIN_USER || !ADMIN_PASSWORD) {
     return res.status(503).json({ error: "Login não configurado (defina ADMIN_USER e ADMIN_PASSWORD no .env)" });
   }
@@ -422,14 +469,33 @@ app.post("/api/login", (req, res) => {
   }
 
   loginFailures.delete(ip);
+  const id = crypto.randomBytes(32).toString("base64url");
+  try {
+    await sessionsDoc.mutate(all => {
+      all[sessionKey(id)] = { created: new Date().toISOString(), auth: credentialsTag() };
+      // Keep the newest MAX_SESSIONS (old forgotten browsers drop off)
+      const keys = Object.keys(all).sort((a, b) => String(all[b].created).localeCompare(String(all[a].created)));
+      keys.slice(MAX_SESSIONS).forEach(k => delete all[k]);
+    });
+  } catch (err) {
+    console.error("[Auth] Could not save the session:", err.message);
+    return res.status(502).json({ error: "Não foi possível iniciar a sessão. Tente de novo." });
+  }
   // ~10 years: the session only ends on logout
-  setSessionCookie(req, res, makeSessionToken(ADMIN_USER), 10 * 365 * 24 * 3600);
+  setSessionCookie(req, res, id, 10 * 365 * 24 * 3600);
   console.log(`[Auth] ${ADMIN_USER} logged in from ${ip}`);
   res.json({ success: true, user: ADMIN_USER });
 });
 
-app.post("/api/logout", (req, res) => {
+app.post("/api/logout", async (req, res) => {
   setSessionCookie(req, res, "", 0);
+  const key = await currentSession(req);
+  try {
+    if (key) await sessionsDoc.mutate(all => { delete all[key]; });
+  } catch (err) {
+    console.error("[Auth] Could not end the session:", err.message);
+    return res.status(502).json({ error: "Não foi possível encerrar a sessão no servidor. Tente de novo." });
+  }
   res.json({ success: true });
 });
 
@@ -442,6 +508,28 @@ app.use("/api", requireAuth);
 app.use("/api-docs", requireAuth);
 
 app.get("/api/session", (req, res) => res.json({ user: ADMIN_USER }));
+
+// How many browsers are logged in
+app.get("/api/sessions", (req, res) => {
+  const tag = credentialsTag();
+  res.json({ count: Object.values(sessionsDoc.get()).filter(s => s.auth === tag).length });
+});
+
+// "Desconectar outros aparelhos": end every session except this one
+app.post("/api/sessions/revoke-others", async (req, res) => {
+  try {
+    const revoked = await sessionsDoc.mutate(all => {
+      const others = Object.keys(all).filter(k => k !== req.sessionKey);
+      others.forEach(k => delete all[k]);
+      return others.length;
+    });
+    console.log(`[Auth] ${revoked} other session(s) ended`);
+    res.json({ success: true, revoked });
+  } catch (err) {
+    console.error("[Auth] Could not end the sessions:", err.message);
+    res.status(502).json({ error: "Não foi possível desconectar os outros aparelhos. Tente de novo." });
+  }
+});
 
 // ── Swagger UI ──────────────────────────────────────────────────────────────
 const swaggerDocument = YAML.parse(fs.readFileSync(path.join(__dirname, 'openapi.yaml'), 'utf8'));
@@ -1226,11 +1314,10 @@ function computeCorrection(clientPosition, startTime, duration) {
 // ── Start server ────────────────────────────────────────────────────────────
 // Load the media library first (the bucket listing in S3 mode), then listen
 // Never start with an empty config by mistake: retry a few times, then give up
-async function loadConfigWithRetry(attempts = 3) {
+async function loadWithRetry(doc, attempts = 3) {
   for (let i = 1; ; i++) {
     try {
-      totemsConf = await configStore.load();
-      return;
+      return await doc.load();
     } catch (err) {
       if (i >= attempts) throw err;
       console.warn(`[Config] Load failed (${err.message}) — retrying (${i}/${attempts - 1})`);
@@ -1241,9 +1328,10 @@ async function loadConfigWithRetry(attempts = 3) {
 
 Promise.all([
   mediaStore.init(),
-  loadConfigWithRetry(),
+  loadWithRetry(configDoc).then(conf => { totemsConf = conf; }),
+  loadWithRetry(sessionsDoc),
 ]).catch(err => {
-  console.error(`\n  ❌ Could not load the campaigns config from ${configStore.describe()}: ${err.message}\n`);
+  console.error(`\n  ❌ Could not load the campaigns config / admin sessions (${configStore.describe()}): ${err.message}\n`);
   process.exit(1);
 }).then(() => server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n  🎬 OOH Audio Sync running on http://0.0.0.0:${PORT}`);
@@ -1261,6 +1349,7 @@ Promise.all([
     setInterval(() => mediaStore.refresh(), 60000).unref();
     console.log(`  🗂️  Campaigns config: ${configStore.describe()} (${Object.keys(totemsConf).length} campaigns, shared by every server on this bucket/prefix)\n`);
     setInterval(refreshConfig, CONFIG_REFRESH_MS).unref();
+    setInterval(refreshSessions, CONFIG_REFRESH_MS).unref();
   } else {
     console.log(`  📁 Media library: ${mediaStore.describe()} (${mediaStore.list().length} files)\n`);
   }

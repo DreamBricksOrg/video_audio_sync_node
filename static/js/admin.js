@@ -58,7 +58,33 @@ document.addEventListener('DOMContentLoaded', () => {
             const { user } = await res.json();
             document.getElementById('currentUser').textContent = user;
         } catch (_) {}
+        loadSessionCount();
     }
+
+    // "Desconectar outros aparelhos" only shows when another browser is logged in
+    const revokeOthersBtn = document.getElementById('revokeOthersBtn');
+    async function loadSessionCount() {
+        try {
+            const { count } = await (await api('/api/sessions')).json();
+            const others = count - 1;
+            revokeOthersBtn.hidden = others < 1;
+            document.getElementById('revokeOthersLabel').textContent =
+                `Desconectar outros aparelhos (${others})`;
+        } catch (_) {}
+    }
+
+    revokeOthersBtn.addEventListener('click', async () => {
+        if (!confirm('Encerrar o login em todos os outros navegadores e aparelhos?\n\nEste navegador continua conectado.')) return;
+        try {
+            const res = await api('/api/sessions/revoke-others', { method: 'POST' });
+            const body = await res.json();
+            if (!res.ok) return alert(body.error || `Não foi possível desconectar (${res.status})`);
+            alert(body.revoked === 1 ? '1 aparelho foi desconectado.' : `${body.revoked} aparelhos foram desconectados.`);
+        } catch (_) {
+            alert('Não foi possível desconectar os outros aparelhos.');
+        }
+        loadSessionCount();
+    });
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {
         try { await fetch('/api/logout', { method: 'POST' }); } catch (_) {}
