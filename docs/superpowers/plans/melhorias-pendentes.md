@@ -4,7 +4,7 @@ Backlog do que ainda falta implementar. Os planos de **Campanhas e Instâncias (
 
 Antes de implementar um item, gere um plano detalhado com a skill **superpowers:writing-plans** (arquivo `YYYY-MM-DD-<nome>.md` nesta pasta).
 
-Atualizado em 2026-10-07.
+Atualizado em 2026-10-07 (alta prioridade concluída).
 
 ---
 
@@ -22,29 +22,18 @@ Atualizado em 2026-10-07.
 - Remoção da API key pública; CORS restrito
 - Gravação atômica do `totems.json`
 - Biblioteca de mídia **só no S3** (`S3_BUCKET`), `npm run s3-sync`, mídia local removida do repositório
-- **Servidor de produção na AWS** com domínio e HTTPS (`videosync.dbpe.com.br`)
+- **Servidor de produção na AWS** com domínio e HTTPS (`videosync.dbpe.com.br`); guia de operação em [`docs/operacao-aws.md`](../../operacao-aws.md)
+- **Campanhas no bucket** (`<prefixo>/totems.json`), compartilhadas entre servidores, com gravação condicional por ETag e sincronização a cada 15s
+- **Admin avisa arquivo inexistente** no card; "Aplicar" recusa arquivos que não existem
+- **Um prefixo do S3 por ambiente** (`audiosync` produção, `audiosync-dev` desenvolvimento)
+- `npm audit` zerado (`express` atualizado, `yamljs` trocado por `yaml`)
+- **Testes no navegador** com Playwright (`npm run test:e2e`), também no CI
 
 ---
 
-## Alta — antes de colocar em sites de verdade
+## Alta
 
-### 1. Configuração das campanhas fora do disco
-Os vídeos já estão no S3, mas `totems.json` (campanhas, vídeo/áudio, links do celular) ainda é arquivo local de cada servidor. **Já causou problema**: o computador de desenvolvimento e a AWS usam o mesmo bucket, um arquivo foi renomeado em um deles e a configuração do outro ficou apontando para um nome que não existe mais (403 no vídeo). Opções: guardar o JSON no próprio S3 (com controle de versão/ETag para não sobrescrever) ou um banco simples (SQLite/Postgres). Manter a interface atual (`totemsConf` + `saveTotemsConf`).
-
-### 2. Admin avisar arquivo que não existe
-Hoje o servidor só confere se o vídeo/áudio existe ao criar ou editar um totem pelo formulário. O botão "Aplicar" (`POST /api/totem/:id/config`) e o carregamento não conferem, e o card não avisa. Fazer: o card mostrar um alerta ("vídeo não encontrado no S3") e o "Aplicar" recusar arquivos inexistentes.
-
-### 3. Prefixo do S3 separado por ambiente
-Configuração, sem código: no `.env` de desenvolvimento usar outro prefixo (ex.: `S3_PREFIX=audiosync-dev`) para testes locais não mexerem nos arquivos de produção. Documentar no guia de produção.
-
-### 4. Vulnerabilidades do `npm audit`
-`body-parser` e `brace-expansion` (dependências antigas). Atualizar e rodar `npm test`.
-
-### 5. Testes no navegador
-Playwright para totem (QR, "Ouvir aqui", responsivo, QR separado), celular (sincronia) e admin (upload, incorporar, CRUD). Os testes atuais cobrem só o servidor; os bugs do "Ouvir aqui" (pausa/`stalled`) e de layout só apareceram no teste manual.
-
-### 6. Documentar a operação do servidor da AWS
-O servidor já roda na AWS; falta registrar como ele é atualizado e mantido: processo gerenciado (pm2/systemd), Nginx repassando WebSocket (`Upgrade`/`Connection`), `TRUST_PROXY=1`, passo a passo de deploy (`git pull` + reiniciar). Opcional: `Dockerfile`.
+Nada pendente — os 6 itens de alta prioridade foram concluídos em 2026-10-07 (veja acima).
 
 ---
 
