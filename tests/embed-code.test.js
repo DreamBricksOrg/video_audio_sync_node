@@ -55,6 +55,12 @@ test("parts: video and QR snippets come separately", () => {
   assert.match(parts.qr, /^<iframe src="https:\/\/audio\.exemplo\.com\/qr\?screen=camp_1&amp;pair=topo"/);
 });
 
+test("qrLink false adds qrlink=false to the totem and the QR iframe", () => {
+  assert.match(buildEmbedUrl({ ...base, qrLink: false }), /&qrlink=false/);
+  assert.doesNotMatch(buildEmbedUrl(base), /qrlink/);
+  assert.match(buildQrUrl({ ...base, qrLink: false }), /\/qr\?screen=camp_1&qrlink=false/);
+});
+
 test("sizes are clamped to sane integers", () => {
   const code = buildEmbedCode({ ...base, width: "abc", height: 99999 });
   assert.match(code, /width="360" height="4000"/);

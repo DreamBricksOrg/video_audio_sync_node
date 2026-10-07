@@ -30,6 +30,7 @@
             pair: (p.get("pair") || "").replace(/[^A-Za-z0-9_-]/g, ""),
             fit: p.get("fit") || "",
             listen: p.get("listen") || "",
+            qrLink: p.get("qrlink") !== "false",
             showQr: false,
         };
         document.getElementById("totem").src = EmbedCode.buildEmbedUrl(opts);

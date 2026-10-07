@@ -3,6 +3,9 @@ const urlParams = new URLSearchParams(window.location.search);
 const SCREEN_ID = urlParams.get('screen') || "totem1";
 // ?showqr=false|0|no|off hides the QR overlay (default: shown)
 const SHOW_QR   = !["false", "0", "no", "off"].includes((urlParams.get('showqr') || "").toLowerCase());
+// ?qrlink=false keeps the QR but not clickable (touch-screen totems: a tap
+// must not open a new tab over the video)
+const QR_LINK   = !["false", "0", "no", "off"].includes((urlParams.get('qrlink') || "").toLowerCase());
 // ?fit=contain shows the whole video (bars if the frame's aspect differs); default: cover (crop)
 if ((urlParams.get('fit') || "").toLowerCase() === "contain") {
     document.querySelector(".totem-container").classList.add("fit-contain");
@@ -41,7 +44,7 @@ if (SHOW_QR) {
     });
     // Clicking the QR card opens the same page the QR points to (new tab, so an
     // embedding site isn't replaced)
-    qrOverlay.href = MOBILE_URL;
+    if (QR_LINK) qrOverlay.href = MOBILE_URL;
 } else {
     qrOverlay.remove();
 }

@@ -14,19 +14,21 @@
     const trimOrigin = origin => String(origin).replace(/\/+$/, "");
 
     // Only non-default options go into the URL
-    function buildEmbedUrl({ origin, campaign, fit, showQr, listen, pair }) {
+    function buildEmbedUrl({ origin, campaign, fit, showQr, listen, pair, qrLink }) {
         const params = new URLSearchParams({ screen: campaign });
         if (fit === "contain") params.set("fit", "contain");
         if (showQr === false) params.set("showqr", "false");
         if (listen === "on" || listen === "off") params.set("listen", listen);
         if (pair) params.set("pair", pair);
+        if (qrLink === false) params.set("qrlink", "false");
         return `${trimOrigin(origin)}/static/totem.html?${params}`;
     }
 
     // Standalone QR iframe that follows the totem iframe on the same page
-    function buildQrUrl({ origin, campaign, pair }) {
+    function buildQrUrl({ origin, campaign, pair, qrLink }) {
         const params = new URLSearchParams({ screen: campaign });
         if (pair) params.set("pair", pair);
+        if (qrLink === false) params.set("qrlink", "false");
         return `${trimOrigin(origin)}/qr?${params}`;
     }
 

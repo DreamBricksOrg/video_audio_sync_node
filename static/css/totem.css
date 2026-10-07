@@ -65,6 +65,9 @@ html, body {
 
 a.qr-overlay {
     text-decoration: none;
+    cursor: default;
+}
+a.qr-overlay[href] {
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
 }

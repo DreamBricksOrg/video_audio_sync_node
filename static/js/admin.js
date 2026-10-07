@@ -686,6 +686,7 @@ document.addEventListener('DOMContentLoaded', () => {
         responsive: document.getElementById('embedResponsive'),
         showQr: document.getElementById('embedShowQr'),
         qrSeparate: document.getElementById('embedQrSeparate'),
+        qrLink: document.getElementById('embedQrLink'),
         pair: document.getElementById('embedPair'),
     };
     const embedCode = document.getElementById('embedCode');
@@ -704,6 +705,7 @@ document.addEventListener('DOMContentLoaded', () => {
             responsive: embedFields.responsive.checked,
             showQr: embedFields.showQr.checked,
             qrSeparate: embedFields.qrSeparate.checked,
+            qrLink: embedFields.qrLink.checked,
             pair: embedFields.pair.value.trim().replace(/[^A-Za-z0-9_-]/g, ''),
         };
     }
@@ -722,7 +724,7 @@ document.addEventListener('DOMContentLoaded', () => {
             parts.qr ? 'Código do vídeo' : 'Código para colar no site';
         // Separate QR: preview page with both iframes side by side
         embedPreview.href = opts.qrSeparate
-            ? `/static/embed-preview.html?${new URLSearchParams({ screen: opts.campaign, pair: opts.pair, fit: opts.fit, listen: opts.listen })}`
+            ? `/static/embed-preview.html?${new URLSearchParams({ screen: opts.campaign, pair: opts.pair, fit: opts.fit, listen: opts.listen, qrlink: opts.qrLink ? '' : 'false' })}`
             : EmbedCode.buildEmbedUrl(opts);
     }
 

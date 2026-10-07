@@ -35,6 +35,25 @@ test("two loads of the same link are two different instances", async ({ browser 
   }
 });
 
+test("qrlink=false keeps the QR but makes it not clickable (touch totems)", async ({ page }) => {
+  await page.goto(`${server.base}/static/totem.html?screen=camp&listen=off&qrlink=false`);
+  await expect(page.locator("#qrWrapper canvas, #qrWrapper img").first()).toBeAttached();
+  expect(await page.locator("#qrLink").getAttribute("href")).toBeNull();
+  const popup = page.waitForEvent("popup", { timeout: 1000 }).catch(() => null);
+  await page.locator("#qrLink").click();
+  expect(await popup).toBeNull();
+});
+
+test("qrlink=false also applies to the standalone QR iframe", async ({ page }) => {
+  await page.goto(`${server.base}/static/embed-preview.html?screen=camp`);
+  await page.evaluate(() => {
+    document.getElementById("qr").src += "&qrlink=false";
+  });
+  const qr = page.frameLocator("#qr");
+  await expect(qr.locator("body")).toHaveAttribute("data-state", "ready");
+  expect(await qr.locator("#qrLink").getAttribute("href")).toBeNull();
+});
+
 test("showqr=false removes the QR card", async ({ page }) => {
   await page.goto(`${server.base}/static/totem.html?screen=camp&showqr=false&listen=off`);
   await expect(page.locator(".qr-overlay")).toHaveCount(0);

@@ -4,6 +4,8 @@
 const params = new URLSearchParams(location.search);
 const SCREEN_ID = params.get("screen") || "totem1";
 const PAIR = params.get("pair") || "";
+// ?qrlink=false: QR not clickable (touch screens)
+const QR_LINK = !["false", "0", "no", "off"].includes((params.get("qrlink") || "").toLowerCase());
 
 const qrLink = document.getElementById("qrLink");
 const qrWrapper = document.getElementById("qrWrapper");
@@ -32,7 +34,7 @@ function render(state) {
         shownUrl = state.mobileUrl;
         console.log(`[QR] Following ${SCREEN_ID}/${state.instance}`);
     }
-    qrLink.href = state.mobileUrl; // same page the QR points to, in a new tab
+    if (QR_LINK) qrLink.href = state.mobileUrl; // same page the QR points to, in a new tab
     document.body.dataset.state = state.hidden ? "connected" : "ready";
 }
 
