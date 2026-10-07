@@ -685,8 +685,8 @@ document.addEventListener('DOMContentLoaded', () => {
         pair: document.getElementById('embedPair'),
     };
     const embedCode = document.getElementById('embedCode');
+    const embedQrCode = document.getElementById('embedQrCode');
     const embedPreview = document.getElementById('embedPreview');
-    const embedCopyBtn = document.getElementById('embedCopyBtn');
     let embedCampaign = null;
 
     function embedOptions() {
@@ -709,7 +709,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const opts = embedOptions();
         document.getElementById('embedPairGroup').hidden = !opts.qrSeparate;
         embedFields.showQr.disabled = opts.qrSeparate; // the totem never shows its own QR then
-        embedCode.value = EmbedCode.buildEmbedCode(opts);
+        // Separate QR: video and QR snippets in their own boxes
+        const parts = EmbedCode.buildEmbedParts(opts);
+        embedCode.value = parts.video;
+        embedQrCode.value = parts.qr || '';
+        document.getElementById('embedQrCodeGroup').hidden = !parts.qr;
+        document.getElementById('embedCodeLabel').textContent =
+            parts.qr ? 'Código do vídeo' : 'Código para colar no site';
         // Separate QR: preview page with both iframes side by side
         embedPreview.href = opts.qrSeparate
             ? `/static/embed-preview.html?${new URLSearchParams({ screen: opts.campaign, pair: opts.pair, fit: opts.fit, listen: opts.listen })}`
@@ -732,21 +738,23 @@ document.addEventListener('DOMContentLoaded', () => {
     embedModal.querySelectorAll('[data-close-embed]').forEach(btn => btn.addEventListener('click', closeEmbedEditor));
     embedModal.addEventListener('click', (e) => { if (e.target === embedModal) closeEmbedEditor(); });
 
-    embedCopyBtn.addEventListener('click', async () => {
+    // One "Copiar" per box (data-copy = textarea id)
+    embedModal.querySelectorAll('[data-copy]').forEach(btn => btn.addEventListener('click', async () => {
+        const box = document.getElementById(btn.dataset.copy);
         try {
-            await navigator.clipboard.writeText(embedCode.value);
+            await navigator.clipboard.writeText(box.value);
         } catch (_) {
             // Clipboard API needs https/localhost; fall back to selecting the text
-            embedCode.select();
+            box.select();
             document.execCommand('copy');
         }
-        embedCopyBtn.innerHTML = '<i data-lucide="check"></i> Copiado';
+        btn.innerHTML = '<i data-lucide="check"></i> Copiado';
         lucide.createIcons();
         setTimeout(() => {
-            embedCopyBtn.innerHTML = '<i data-lucide="copy"></i> Copiar código';
+            btn.innerHTML = '<i data-lucide="copy"></i> Copiar';
             lucide.createIcons();
         }, 1500);
-    });
+    }));
 
     // ── Mobile page links editor ───────────────────────
     const promoModal = document.getElementById('promoModal');

@@ -45,19 +45,27 @@
         return `<iframe src="${src}" width="${width}" height="${height}" style="border:0;" ${common}></iframe>`;
     }
 
-    // opts.qrSeparate: the totem hides its own QR and a /qr iframe shows it
-    // elsewhere on the page (both must be on the same page; same `pair` if set)
-    function buildEmbedCode(opts) {
-        if (!opts.qrSeparate) return buildTotemCode(opts);
-        const totem = buildTotemCode({ ...opts, showQr: false });
+    // { video, qr }: with opts.qrSeparate the totem hides its own QR and a /qr
+    // iframe shows it elsewhere on the page (both on the same page; same `pair`
+    // if set). Without it, qr is null.
+    function buildEmbedParts(opts) {
+        if (!opts.qrSeparate) return { video: buildTotemCode(opts), qr: null };
         const qrSrc = escapeAttr(buildQrUrl(opts));
         const qrWidth = clampSize(opts.qrWidth, 240);
         const qrHeight = clampSize(opts.qrHeight, 300);
-        return `${totem}\n\n<!-- QR Code -->\n` +
-            `<iframe src="${qrSrc}" width="${qrWidth}" height="${qrHeight}" style="border:0;" title="QR Code para ouvir o áudio"></iframe>`;
+        return {
+            video: buildTotemCode({ ...opts, showQr: false }),
+            qr: `<iframe src="${qrSrc}" width="${qrWidth}" height="${qrHeight}" style="border:0;" title="QR Code para ouvir o áudio"></iframe>`,
+        };
     }
 
-    const api = { buildEmbedUrl, buildEmbedCode, buildQrUrl };
+    // Both snippets in one string (single copy/paste)
+    function buildEmbedCode(opts) {
+        const { video, qr } = buildEmbedParts(opts);
+        return qr ? `${video}\n\n<!-- QR Code -->\n${qr}` : video;
+    }
+
+    const api = { buildEmbedUrl, buildEmbedCode, buildEmbedParts, buildQrUrl };
     if (typeof module !== "undefined" && module.exports) module.exports = api;
     else root.EmbedCode = api;
 })(typeof window !== "undefined" ? window : globalThis);

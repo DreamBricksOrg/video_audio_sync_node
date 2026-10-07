@@ -184,15 +184,25 @@
             </div>
 
             <div class="form-group">
-                <label for="embedCode">Código para colar no site</label>
+                <div class="code-label-row">
+                    <label for="embedCode" id="embedCodeLabel">Código para colar no site</label>
+                    <button type="button" class="btn btn-secondary btn-sm copy-btn" data-copy="embedCode"><i data-lucide="copy"></i> Copiar</button>
+                </div>
                 <textarea id="embedCode" class="text-input code-output" rows="5" readonly></textarea>
+            </div>
+
+            <div class="form-group" id="embedQrCodeGroup" hidden>
+                <div class="code-label-row">
+                    <label for="embedQrCode">Código do QR <span class="hint">cole na mesma página, onde o QR deve aparecer</span></label>
+                    <button type="button" class="btn btn-secondary btn-sm copy-btn" data-copy="embedQrCode"><i data-lucide="copy"></i> Copiar</button>
+                </div>
+                <textarea id="embedQrCode" class="text-input code-output" rows="3" readonly></textarea>
             </div>
 
             <div class="modal-actions">
                 <a id="embedPreview" class="btn btn-ghost" href="#" target="_blank" rel="noopener"><i data-lucide="external-link"></i> Ver página</a>
                 <span class="spacer"></span>
                 <button type="button" class="btn btn-secondary" data-close-embed>Fechar</button>
-                <button type="button" class="btn btn-primary" id="embedCopyBtn"><i data-lucide="copy"></i> Copiar código</button>
             </div>
         </div>
     </div>

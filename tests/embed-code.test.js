@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { buildEmbedUrl, buildEmbedCode, buildQrUrl } = require("../static/js/embed-code");
+const { buildEmbedUrl, buildEmbedCode, buildEmbedParts, buildQrUrl } = require("../static/js/embed-code");
 
 const base = { origin: "https://audio.exemplo.com/", campaign: "camp_1", width: 360, height: 640 };
 
@@ -42,6 +42,17 @@ test("pair links one QR to one totem", () => {
   const code = buildEmbedCode({ ...base, qrSeparate: true, pair: "loja-2" });
   assert.match(code, /totem\.html\?screen=camp_1&amp;showqr=false&amp;pair=loja-2/);
   assert.match(code, /\/qr\?screen=camp_1&amp;pair=loja-2/);
+});
+
+test("parts: video and QR snippets come separately", () => {
+  const single = buildEmbedParts(base);
+  assert.equal(single.qr, null);
+  assert.equal(single.video, buildEmbedCode(base));
+
+  const parts = buildEmbedParts({ ...base, qrSeparate: true, pair: "topo" });
+  assert.match(parts.video, /^<iframe src="[^"]*totem\.html\?screen=camp_1&amp;showqr=false&amp;pair=topo"/);
+  assert.doesNotMatch(parts.video, /\/qr\?/);
+  assert.match(parts.qr, /^<iframe src="https:\/\/audio\.exemplo\.com\/qr\?screen=camp_1&amp;pair=topo"/);
 });
 
 test("sizes are clamped to sane integers", () => {
