@@ -28,7 +28,7 @@ const crypto = require("crypto");
 const url = require("url");
 const bodyParser = require("body-parser");
 const swaggerUi = require("swagger-ui-express");
-const YAML = require("yamljs");
+const YAML = require("yaml");
 const { splitMedia, INPUT_EXTS: SPLIT_INPUT_EXTS } = require("./lib/media-splitter");
 const { createInstanceRegistry } = require("./lib/instances");
 const { writeJsonAtomic } = require("./lib/atomic-write");
@@ -369,7 +369,7 @@ app.use("/api-docs", requireAuth);
 app.get("/api/session", (req, res) => res.json({ user: ADMIN_USER }));
 
 // ── Swagger UI ──────────────────────────────────────────────────────────────
-const swaggerDocument = YAML.load(path.join(__dirname, 'openapi.yaml'));
+const swaggerDocument = YAML.parse(fs.readFileSync(path.join(__dirname, 'openapi.yaml'), 'utf8'));
 swaggerDocument.servers = [{ url: PUBLIC_URL }];
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 

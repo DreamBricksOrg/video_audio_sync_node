@@ -88,6 +88,32 @@ paths:
           description: Logged out
 
   /api/totems:
+    get:
+      summary: List Registered Totems
+      description: Returns a list of all totems and their current configurations (online status, mobile count, and assigned video).
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      example: "Totem_A"
+                    is_online:
+                      type: boolean
+                      example: true
+                    mobile_count:
+                      type: integer
+                      example: 3
+                    video:
+                      type: string
+                      nullable: true
+                      example: "ivete_video.mp4"
     post:
       summary: Create Totem
       description: ID must be 1–40 letters, numbers, `-` or `_`. Video/audio are optional but must exist in `assets/`.
@@ -379,34 +405,6 @@ paths:
           description: A file with this name already exists (retry with `overwrite=1`)
         '413':
           description: File exceeds the size limit
-
-  /api/totems:
-    get:
-      summary: List Registered Totems
-      description: Returns a list of all totems and their current configurations (online status, mobile count, and assigned video).
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                      example: "Totem_A"
-                    is_online:
-                      type: boolean
-                      example: true
-                    mobile_count:
-                      type: integer
-                      example: 3
-                    video:
-                      type: string
-                      nullable: true
-                      example: "ivete_video.mp4"
 
   /api/totem/{id}/video:
     post:
