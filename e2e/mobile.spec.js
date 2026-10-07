@@ -19,6 +19,9 @@ test.afterAll(() => {
 });
 
 test("the phone syncs with the instance from its QR and gets the campaign links", async ({ page }) => {
+  // The debug page is admin-only: log in first (test-only credentials)
+  const login = await page.request.post(`${server.base}/api/login`, { data: { username: "test", password: "test-pass" } });
+  expect(login.ok()).toBe(true);
   await page.goto(`${server.base}/static/mobile_debug.html?screen=camp&instance=tela-a`);
   await expect(page.locator("#screenBadge")).toHaveText("CAMP · tela-a");
   await expect.poll(() => page.evaluate(() => syncData && syncData.instance)).toBe("tela-a");

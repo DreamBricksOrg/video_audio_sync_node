@@ -433,6 +433,8 @@ app.post("/api/logout", (req, res) => {
 // Everything below is admin-only: admin page, API docs and /api/*
 app.get("/admin", requireAuth, (req, res) => res.sendFile(path.join(STATIC_DIR, "admin.html")));
 app.get("/static/admin.html", (req, res) => res.redirect("/admin"));
+// Debug page shows internals (timings, drift): admin only
+app.get("/static/mobile_debug.html", requireAuth, (req, res) => res.sendFile(path.join(STATIC_DIR, "mobile_debug.html")));
 app.use("/api", requireAuth);
 app.use("/api-docs", requireAuth);
 
@@ -1210,7 +1212,7 @@ Promise.all([
   console.log(`  📺 Totem:  ${PUBLIC_URL}/static/totem.html?screen=totem1`);
   console.log(`  ⚙️  Admin:  ${PUBLIC_URL}/admin`);
   console.log(`  📱 Mobile: ${PUBLIC_URL}/static/mobile.html?screen=totem1`);
-  console.log(`  📱 Mobile: ${PUBLIC_URL}/static/mobile_debug.html?screen=totem1`);
+  console.log(`  🔧 Debug:  ${PUBLIC_URL}/static/mobile_debug.html?screen=totem1 (admin login)`);
   console.log(`  ❤️  Health: ${PUBLIC_URL}/health`);
   console.log(`  📖 Docs:   ${PUBLIC_URL}/api-docs\n`);
   const status = mediaStore.status();

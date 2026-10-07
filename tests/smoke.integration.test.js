@@ -24,6 +24,20 @@ test("/qr serves the standalone QR page without login", async () => {
   assert.match(html, /js\/qr\.js/);
 });
 
+test("the debug page requires the admin login; the public pages don't", async () => {
+  let res = await fetch(`${server.base}/static/mobile_debug.html?screen=camp`, { redirect: "manual" });
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get("location"), /^\/login\?next=%2Fstatic%2Fmobile_debug\.html/);
+
+  const cookie = await server.login();
+  res = await fetch(`${server.base}/static/mobile_debug.html?screen=camp`, { headers: { Cookie: cookie }, redirect: "manual" });
+  assert.equal(res.status, 200);
+
+  for (const p of ["/static/mobile.html", "/static/totem.html", "/qr"]) {
+    assert.equal((await fetch(server.base + p, { redirect: "manual" })).status, 200, p);
+  }
+});
+
 test("admin writes go to TOTEMS_FILE, not the project totems.json", async () => {
   const cookie = await server.login();
   const res = await fetch(`${server.base}/api/totems`, {
