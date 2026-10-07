@@ -30,3 +30,6 @@ assets/
 
 # Docs
 MELHORIAS.md
+# Playwright
+test-results/
+playwright-report/

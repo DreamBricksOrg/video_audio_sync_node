@@ -9,7 +9,8 @@
     "split": "node scripts/split-media.js",
     "test": "node --test \"tests/**/*.test.js\"",
     "load-test": "node scripts/load-test.js",
-    "s3-sync": "node scripts/s3-sync.js"
+    "s3-sync": "node scripts/s3-sync.js",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
@@ -18,5 +19,8 @@
     "swagger-ui-express": "^5.0.1",
     "ws": "^8.18.0",
     "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0"
   }
 }

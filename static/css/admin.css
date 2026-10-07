@@ -3,6 +3,9 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* The `hidden` attribute must win over component display rules (e.g. .form-group's flex) */
+[hidden] { display: none !important; }
+
 html, body {
     width: 100%; min-height: 100vh;
     font-family: var(--font-body);
