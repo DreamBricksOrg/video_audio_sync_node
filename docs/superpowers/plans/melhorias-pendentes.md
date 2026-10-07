@@ -36,6 +36,7 @@ Atualizado em 2026-10-07 (alta prioridade e média — menos 8 e 11 — concluí
 - **Estatísticas por campanha**: telas abertas, escaneamentos, celulares ouvindo, tempo médio, sites; um arquivo por dia (90 dias), gráfico e CSV no admin
 - **Playlists e agendamento**: vários vídeos em sequência, cada um com seu áudio (o celular troca junto); período no ar com campanha padrão ou tela preta com logo
 - Lógica do celular unificada em `static/js/sync-player.js` (antigo item 17)
+- Arrumação: branch `feat/campaign-instances` apagada; `totems.json` fora do git (modelo em `totems.example.json`)
 
 ---
 
@@ -65,11 +66,6 @@ Para conexões lentas; o separador geraria as variantes. Exige trocar o `<video>
 20. Vários usuários no admin, com permissões e registro de quem fez o quê.
 21. Redis para várias instâncias do servidor — só se o teste de carga mostrar necessidade.
 
-## Arrumação rápida
-
-- Apagar a branch `feat/campaign-instances` (já está toda na `main`).
-- Tirar `totems.json` do git (dados de uso) e versionar um `totems.example.json`.
-- Conferir o resultado do CI na aba **Actions** do GitHub.
 
 ## Fora do escopo (decidido não implementar)
 

@@ -39,3 +39,7 @@ sessions.json
 
 # Estatísticas do admin (modo local; no modo S3 ficam no bucket em <prefixo>/stats/)
 stats/
+
+# Campaigns config (usage data): copy totems.example.json to start in local mode.
+# In S3 mode the campaigns live in the bucket (<prefix>/totems.json).
+totems.json

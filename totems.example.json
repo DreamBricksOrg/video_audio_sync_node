@@ -1,0 +1,19 @@
+{
+  "totem1": {
+    "video": "exemplo_video.mp4",
+    "audio": "exemplo_audio.mp3"
+  },
+  "verao": {
+    "video": "verao_video1.mp4",
+    "audio": "verao_audio1.mp3",
+    "playlist": [
+      { "video": "verao_video1.mp4", "audio": "verao_audio1.mp3" },
+      { "video": "verao_video2.mp4", "audio": "verao_audio2.mp3" }
+    ],
+    "schedule": {
+      "start": "2026-12-01T03:00:00.000Z",
+      "end": "2027-03-01T03:00:00.000Z",
+      "fallback": "totem1"
+    }
+  }
+}

@@ -163,6 +163,12 @@ A partir do commit `f6f023f`, as campanhas ficam no bucket (`audiosync/totems.js
 - Garanta que nenhuma outra máquina rode com `S3_PREFIX=audiosync` antes (ela criaria o arquivo com a configuração dela).
 - Depois de subir, se algum card mostrar "Arquivo não encontrado" (ex.: `totem1` apontando para `99_video2.mp4`), escolha o arquivo certo e clique em **Aplicar**.
 
+### `totems.json` fora do git
+
+Desde a arrumação de 2026-10-07 o `totems.json` não é mais versionado (há um `totems.example.json` de modelo). No servidor, o próximo `git pull` **apaga o `totems.json` local** — sem problema no modo S3, porque as campanhas já estão no bucket (`audiosync/totems.json`) e o arquivo local só serve de semente para um prefixo novo. Se quiser guardar uma cópia antes: `cp totems.json ~/totems.backup.json`.
+
+Para um ambiente novo no modo local: `cp totems.example.json totems.json` (ou comece sem o arquivo e crie as campanhas no admin).
+
 ## 6. Voltar uma versão (rollback)
 
 ```bash
