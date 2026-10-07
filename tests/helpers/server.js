@@ -7,8 +7,13 @@ const path = require("node:path");
 const ROOT = path.join(__dirname, "..", "..");
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function startServer({ totems = {}, env = {} } = {}) {
+// `media`: filenames to create (tiny placeholder files) in a temporary assets/
+// folder, so configs that reference them pass the "file exists" checks.
+async function startServer({ totems = {}, env = {}, media = [] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "audiosync-test-"));
+  const assetsDir = path.join(dir, "assets");
+  fs.mkdirSync(assetsDir);
+  media.forEach(name => fs.writeFileSync(path.join(assetsDir, name), "placeholder"));
   const totemsFile = path.join(dir, "totems.json");
   fs.writeFileSync(totemsFile, JSON.stringify(totems, null, 2));
   // Empty .env: tests must never pick up the developer's real config (S3, CORS, limits…)
@@ -23,6 +28,7 @@ async function startServer({ totems = {}, env = {} } = {}) {
       PORT: String(port),
       TOTEMS_FILE: totemsFile,
       ENV_FILE: envFile,
+      ASSETS_DIR: assetsDir,
       ADMIN_USER: "test",
       ADMIN_PASSWORD: "test-pass",
       SESSION_SECRET: "t".repeat(64),

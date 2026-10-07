@@ -127,6 +127,7 @@ html, body {
     font-size: var(--text-xs); line-height: var(--leading-snug);
 }
 .card-note svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 1px; }
+.card-note-danger { background: var(--db-danger-100); color: var(--db-danger-500); }
 .form-group .form-label,
 .form-group label {
     font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary);

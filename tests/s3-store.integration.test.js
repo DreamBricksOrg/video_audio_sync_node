@@ -89,7 +89,8 @@ describe("S3-only media library", () => {
 
     r = await api(server, cookie, "DELETE", "/api/media/spot-dois.mp3");
     assert.equal(r.status, 409, "in use by camp");
-    await api(server, cookie, "POST", "/api/totem/camp/config", { video: "existente.mp4", audio: "existente.mp4" });
+    // Release the audio (empty), then it can be deleted
+    assert.equal((await api(server, cookie, "PATCH", "/api/totem/camp", { audio: "" })).status, 200);
     r = await api(server, cookie, "DELETE", "/api/media/spot-dois.mp3");
     assert.equal(r.status, 200);
     assert.equal(s3.objects.has("midia/audiosync/spot-dois.mp3"), false);

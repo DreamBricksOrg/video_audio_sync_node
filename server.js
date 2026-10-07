@@ -639,6 +639,7 @@ app.get("/api/totems", (req, res) => {
       mobile_count: mobiles,        // phones listening (drift sockets)
       video: totemsConf[id] ? totemsConf[id].video : null,
       audio: totemsConf[id] ? totemsConf[id].audio : null,
+      missing: missingMedia(totemsConf[id]), // configured files not in the library
       promo: promoFor(id),
     };
   }));
@@ -669,6 +670,8 @@ app.post("/api/totem/:id/config", (req, res) => {
   const { video, audio } = req.body;
   
   if (!video || !audio) return res.status(400).json({ error: "Escolha um vídeo e um áudio" });
+  const mediaError = validateTotemMedia(video, audio);
+  if (mediaError) return res.status(400).json({ error: mediaError });
   
   // Persist
   if (!totemsConf[id]) totemsConf[id] = {};
@@ -689,6 +692,14 @@ app.post("/api/totem/:id/config", (req, res) => {
 const TOTEM_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
 // Checks optional video/audio fields against assets/. Returns an error string or null.
+// Files a totem config references that aren't in the library (e.g. renamed or
+// deleted by another server sharing the bucket). Empty while the library is
+// unavailable, to avoid false alarms.
+function missingMedia(conf) {
+  if (!conf || !mediaStore.status().ok) return [];
+  return [conf.video, conf.audio].filter(f => f && !mediaStore.has(f));
+}
+
 function validateTotemMedia(video, audio) {
   if (video && !listMedia("video").includes(video)) return `Vídeo não encontrado: ${video}`;
   if (audio && !listMedia("audio").includes(audio)) return `Áudio não encontrado: ${audio}`;

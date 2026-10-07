@@ -5,7 +5,10 @@ const { connect, registerScreen, mobileSync } = require("./helpers/ws");
 
 let server;
 before(async () => {
-  server = await startServer({ totems: { camp: { video: "camp_video.mp4", audio: "camp_audio.mp3" } } });
+  server = await startServer({
+    totems: { camp: { video: "camp_video.mp4", audio: "camp_audio.mp3" } },
+    media: ["camp_video.mp4", "camp_audio.mp3", "outro.mp4", "novo_audio.mp3"],
+  });
 });
 after(() => server.stop());
 

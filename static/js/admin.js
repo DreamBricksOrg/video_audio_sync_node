@@ -115,7 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
         totemsById = Object.fromEntries(totems.map(t => [t.id, t]));
 
         const signature = JSON.stringify([
-            totems.map(t => [t.id, t.configured, t.video, t.audio]), videosCache, audiosCache,
+            totems.map(t => [t.id, t.configured, t.video, t.audio, t.missing]), videosCache, audiosCache,
         ]);
         if (signature === totemsSignature) {
             totems.forEach(updateTotemStatus);
@@ -149,6 +149,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 ${totem.configured ? '' : `
                 <p class="card-note"><i data-lucide="info"></i> Ligado, mas ainda não salvo. Escolha o vídeo e o áudio e clique em Aplicar.</p>`}
+                ${(totem.missing || []).length ? `
+                <p class="card-note card-note-danger"><i data-lucide="alert-triangle"></i>
+                    <span>Arquivo não encontrado na biblioteca: <strong>${totem.missing.map(escapeHtml).join(', ')}</strong>.
+                    As telas não vão conseguir tocar. Escolha outro arquivo e clique em Aplicar.</span></p>` : ''}
                 <div class="card-metrics">
                     <div class="metric">
                         <span class="metric-label">Telas abertas</span>
