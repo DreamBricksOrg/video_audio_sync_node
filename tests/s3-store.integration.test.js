@@ -156,27 +156,42 @@ describe("S3-only media library", () => {
   });
 });
 
-describe("S3 unreachable", () => {
-  let server, assets;
-  before(async () => {
-    assets = fs.mkdtempSync(path.join(os.tmpdir(), "assets-"));
+describe("S3 unreachable at startup", () => {
+  test("the server refuses to start instead of running with an empty config", async () => {
     // Nothing listens on port 9 → every S3 call fails
-    server = await startServer({ env: { ...s3Env("http://127.0.0.1:9"), ASSETS_DIR: assets } });
+    await assert.rejects(
+      startServer({ env: s3Env("http://127.0.0.1:9") }),
+      err => /did not start/.test(err.message) && /Could not load the campaigns config/.test(err.message),
+    );
+  });
+});
+
+describe("S3 goes down while the server runs", () => {
+  let s3, server, assets, cookie;
+  before(async () => {
+    s3 = await startFakeS3();
+    s3.objects.set("midia/audiosync/existente.mp4", { body: Buffer.from("v") });
+    assets = fs.mkdtempSync(path.join(os.tmpdir(), "assets-"));
+    server = await startServer({
+      totems: { camp: { video: "existente.mp4", audio: "" } },
+      env: { ...s3Env(s3.endpoint), ASSETS_DIR: assets },
+    });
+    cookie = await server.login();
+    s3.stop();
   });
   after(() => {
     server.stop();
     fs.rmSync(assets, { recursive: true, force: true });
   });
 
-  test("the admin sees the error and uploads fail without saving locally", async () => {
-    const cookie = await server.login();
-    const list = await api(server, cookie, "GET", "/api/media");
-    assert.equal(list.status, 503);
-    assert.match(list.body.error, /S3/);
-
+  test("uploads and config changes fail with an S3 error; nothing is saved locally", async () => {
     const r = await upload(server, cookie, "x.mp3", "data");
     assert.equal(r.status, 502);
     assert.match(r.body.error, /S3/);
     assert.deepEqual(fs.readdirSync(assets), []);
+
+    const c = await api(server, cookie, "POST", "/api/totems", { id: "novo" });
+    assert.equal(c.status, 502);
+    assert.match(c.body.error, /S3/);
   });
 });

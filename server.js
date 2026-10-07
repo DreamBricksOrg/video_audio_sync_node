@@ -31,10 +31,10 @@ const swaggerUi = require("swagger-ui-express");
 const YAML = require("yaml");
 const { splitMedia, INPUT_EXTS: SPLIT_INPUT_EXTS } = require("./lib/media-splitter");
 const { createInstanceRegistry } = require("./lib/instances");
-const { writeJsonAtomic } = require("./lib/atomic-write");
 const { createMediaUrl, defaultS3BaseUrl } = require("./lib/media-url");
 const { createS3Storage } = require("./lib/s3-storage");
 const { createLocalStore, createS3Store } = require("./lib/media-store");
+const { createFileConfigStore, createS3ConfigStore, isConfigConflict } = require("./lib/config-store");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 // Load .env (Node >= 20.12 built-in); real env vars take precedence.
@@ -164,30 +164,100 @@ app.use((req, res, next) => {
 // JSON parsing
 app.use(bodyParser.json());
 
-// ── Totems configuration sync ───────────────────────────────────────────────
-function loadTotemsConf() {
-  if (fs.existsSync(TOTEMS_FILE)) {
-    try {
-      const data = fs.readFileSync(TOTEMS_FILE, 'utf-8');
-      return JSON.parse(data);
-    } catch (e) {
-      console.error("Failed to parse totems.json", e);
+// ── Campaigns config (totems.json) ──────────────────────────────────────────
+// Local file, or <prefix>/totems.json in the bucket in S3 mode — shared by every
+// server using that bucket/prefix, so they can't drift apart. Loaded at startup.
+const CONFIG_REFRESH_MS = parseInt(process.env.CONFIG_REFRESH_MS, 10) || 15000;
+
+// The local file seeds the bucket the first time S3 mode starts
+function readLocalTotems() {
+  try {
+    return fs.existsSync(TOTEMS_FILE) ? JSON.parse(fs.readFileSync(TOTEMS_FILE, "utf-8") || "{}") : {};
+  } catch (e) {
+    console.error("Failed to parse totems.json", e.message);
+    return {};
+  }
+}
+
+const configStore = storage.enabled
+  ? createS3ConfigStore({ storage, seed: readLocalTotems })
+  : createFileConfigStore({ file: TOTEMS_FILE });
+
+// Map from totem Id => configuration { video, audio, promo }
+let totemsConf = {};
+
+class HttpError extends Error {
+  constructor(status, message, extra) {
+    super(message);
+    this.status = status;
+    this.extra = extra;
+  }
+}
+
+// Config changed elsewhere (another server): adopt it and switch this server's
+// open screens whose video/audio changed
+function applyRemoteConfig(next) {
+  const prev = totemsConf;
+  totemsConf = next;
+  for (const id of new Set([...Object.keys(prev), ...Object.keys(next)])) {
+    const before = prev[id] || {};
+    const after = next[id] || {};
+    if (after.video && (before.video !== after.video || before.audio !== after.audio)) {
+      sendToCampaign(id, videoMessage(id));
     }
   }
-  return {};
 }
 
-function saveTotemsConf(conf) {
+async function refreshConfig() {
   try {
-    // Temp file + rename: a crash mid-write can't corrupt the config
-    writeJsonAtomic(TOTEMS_FILE, conf);
+    const fresh = await configStore.refresh();
+    if (fresh) {
+      applyRemoteConfig(fresh);
+      console.log("[Config] Reloaded (changed by another server)");
+    }
   } catch (e) {
-    console.error("Failed to write to totems.json", e);
+    console.error("[Config] Refresh failed:", e.message);
   }
 }
 
-// Map from totem Id => configuration { video: "video.mp4" }
-let totemsConf = loadTotemsConf();
+// The only way to change the config: re-read the latest version, apply
+// mutate(conf) to a copy, save it conditionally, and retry if another server
+// saved in between. mutate may throw HttpError; its return value is passed on.
+// Calls are queued so this process never races with itself.
+let configQueue = Promise.resolve();
+function mutateConfig(mutate) {
+  const run = async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const fresh = await configStore.refresh();
+      if (fresh) applyRemoteConfig(fresh);
+      const next = structuredClone(totemsConf);
+      const result = mutate(next);
+      try {
+        await configStore.save(next);
+        totemsConf = next;
+        return result;
+      } catch (err) {
+        if (!isConfigConflict(err)) throw err;
+        console.warn("[Config] Changed by another server meanwhile — retrying");
+      }
+    }
+    throw new HttpError(409, "A configuração foi alterada ao mesmo tempo em outro servidor. Tente de novo.");
+  };
+  const result = configQueue.then(run, run);
+  configQueue = result.catch(() => {});
+  return result;
+}
+
+// HttpError → its status; anything else = the config storage failed
+function sendError(res, err, context) {
+  if (err instanceof HttpError) return res.status(err.status).json({ error: err.message, ...(err.extra || {}) });
+  console.error(`[${context}]`, err.message);
+  res.status(502).json({
+    error: configStore.remote
+      ? `Não foi possível salvar a configuração no S3: ${err.message}`
+      : "Não foi possível salvar a configuração",
+  });
+}
 
 // ── Mobile page promo (text + links), per totem ────────────────────────────
 // Used for totems that never had their links edited in the admin.
@@ -590,12 +660,23 @@ app.patch("/api/media/:filename", async (req, res) => {
   }
 
   // Keep totem configs pointing at the file under its new name
-  const updated = totemsUsing(oldName);
-  updated.forEach(id => {
-    if (totemsConf[id].video === oldName) totemsConf[id].video = newName;
-    if (totemsConf[id].audio === oldName) totemsConf[id].audio = newName;
-  });
-  if (updated.length) saveTotemsConf(totemsConf);
+  let updated = [];
+  try {
+    await refreshConfig();
+    if (totemsUsing(oldName).length) {
+      updated = await mutateConfig(conf => {
+        const ids = Object.keys(conf).filter(id => conf[id].video === oldName || conf[id].audio === oldName);
+        ids.forEach(id => {
+          if (conf[id].video === oldName) conf[id].video = newName;
+          if (conf[id].audio === oldName) conf[id].audio = newName;
+        });
+        return ids;
+      });
+    }
+  } catch (err) {
+    console.error("[Media] Rename: config update failed", err.message);
+    return res.status(502).json({ error: `Arquivo renomeado, mas não foi possível atualizar os totens: ${err.message}` });
+  }
   // After the config is updated, so the message carries the new names
   updated.forEach(id => sendToCampaign(id, videoMessage(id)));
 
@@ -608,6 +689,7 @@ app.delete("/api/media/:filename", async (req, res) => {
   const filename = req.params.filename;
   if (!mediaExists(filename)) return res.status(404).json({ error: "Arquivo não encontrado" });
 
+  await refreshConfig(); // another server may have just assigned it
   const usedBy = totemsUsing(filename);
   if (usedBy.length) {
     return res.status(409).json({ error: "O arquivo está em uso por um totem", used_by: usedBy });
@@ -651,21 +733,26 @@ app.get("/api/promo/options", (req, res) => {
 });
 
 // Update the mobile page text/links for a totem
-app.put("/api/totem/:id/promo", (req, res) => {
+app.put("/api/totem/:id/promo", async (req, res) => {
   const { id } = req.params;
   const { promo, error } = sanitizePromo(req.body);
   if (error) return res.status(400).json({ error });
 
-  if (!totemsConf[id]) totemsConf[id] = {};
-  totemsConf[id].promo = promo;
-  saveTotemsConf(totemsConf);
+  try {
+    await mutateConfig(conf => {
+      if (!conf[id]) conf[id] = {};
+      conf[id].promo = promo;
+    });
+  } catch (err) {
+    return sendError(res, err, "Admin");
+  }
 
   console.log(`[Admin] Updated mobile links for totem ${id} (${promo.links.length} links)`);
   res.json({ success: true, id, promo });
 });
 
 // Update specific totem's config
-app.post("/api/totem/:id/config", (req, res) => {
+app.post("/api/totem/:id/config", async (req, res) => {
   const { id } = req.params;
   const { video, audio } = req.body;
   
@@ -673,11 +760,15 @@ app.post("/api/totem/:id/config", (req, res) => {
   const mediaError = validateTotemMedia(video, audio);
   if (mediaError) return res.status(400).json({ error: mediaError });
   
-  // Persist
-  if (!totemsConf[id]) totemsConf[id] = {};
-  totemsConf[id].video = video;
-  totemsConf[id].audio = audio;
-  saveTotemsConf(totemsConf);
+  try {
+    await mutateConfig(conf => {
+      if (!conf[id]) conf[id] = {};
+      conf[id].video = video;
+      conf[id].audio = audio;
+    });
+  } catch (err) {
+    return sendError(res, err, "Admin");
+  }
   
   console.log(`[Admin] Assigned video ${video} and audio ${audio} to totem ${id}`);
   
@@ -691,7 +782,6 @@ app.post("/api/totem/:id/config", (req, res) => {
 // IDs go into URLs (?screen=ID) and the admin markup, so keep them simple
 const TOTEM_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
-// Checks optional video/audio fields against assets/. Returns an error string or null.
 // Files a totem config references that aren't in the library (e.g. renamed or
 // deleted by another server sharing the bucket). Empty while the library is
 // unavailable, to avoid false alarms.
@@ -700,6 +790,7 @@ function missingMedia(conf) {
   return [conf.video, conf.audio].filter(f => f && !mediaStore.has(f));
 }
 
+// Checks optional video/audio fields against the library. Returns an error string or null.
 function validateTotemMedia(video, audio) {
   if (video && !listMedia("video").includes(video)) return `Vídeo não encontrado: ${video}`;
   if (audio && !listMedia("audio").includes(audio)) return `Áudio não encontrado: ${audio}`;
@@ -707,17 +798,22 @@ function validateTotemMedia(video, audio) {
 }
 
 // Create: POST /api/totems  { id, video?, audio? }
-app.post("/api/totems", (req, res) => {
+app.post("/api/totems", async (req, res) => {
   const { id, video = "", audio = "" } = req.body || {};
   if (!TOTEM_ID_RE.test(id || "")) {
     return res.status(400).json({ error: "O ID deve ter de 1 a 40 letras, números, - ou _" });
   }
-  if (totemsConf[id]) return res.status(409).json({ error: `O totem "${id}" já existe` });
   const mediaError = validateTotemMedia(video, audio);
   if (mediaError) return res.status(400).json({ error: mediaError });
 
-  totemsConf[id] = { video, audio };
-  saveTotemsConf(totemsConf);
+  try {
+    await mutateConfig(conf => {
+      if (conf[id]) throw new HttpError(409, `O totem "${id}" já existe`);
+      conf[id] = { video, audio };
+    });
+  } catch (err) {
+    return sendError(res, err, "Admin");
+  }
   console.log(`[Admin] Created totem ${id}`);
 
   // Screens already open under this ID pick up the video right away
@@ -727,29 +823,32 @@ app.post("/api/totems", (req, res) => {
 });
 
 // Update: PATCH /api/totem/:id  { id?, video?, audio? }  — `id` renames the totem
-app.patch("/api/totem/:id", (req, res) => {
+app.patch("/api/totem/:id", async (req, res) => {
   const oldId = req.params.id;
-  if (!totemsConf[oldId]) return res.status(404).json({ error: "Totem não encontrado" });
-
   const body = req.body || {};
   const newId = body.id === undefined ? oldId : String(body.id).trim();
   if (!TOTEM_ID_RE.test(newId)) {
     return res.status(400).json({ error: "O ID deve ter de 1 a 40 letras, números, - ou _" });
   }
-  if (newId !== oldId && totemsConf[newId]) {
-    return res.status(409).json({ error: `O totem "${newId}" já existe` });
-  }
-
-  const conf = { ...totemsConf[oldId] };
-  if (body.video !== undefined) conf.video = body.video || "";
-  if (body.audio !== undefined) conf.audio = body.audio || "";
   const mediaError = validateTotemMedia(body.video, body.audio);
   if (mediaError) return res.status(400).json({ error: mediaError });
 
-  const mediaChanged = conf.video !== totemsConf[oldId].video || conf.audio !== totemsConf[oldId].audio;
-  if (newId !== oldId) delete totemsConf[oldId];
-  totemsConf[newId] = conf;
-  saveTotemsConf(totemsConf);
+  let conf, mediaChanged;
+  try {
+    ({ conf, mediaChanged } = await mutateConfig(all => {
+      if (!all[oldId]) throw new HttpError(404, "Totem não encontrado");
+      if (newId !== oldId && all[newId]) throw new HttpError(409, `O totem "${newId}" já existe`);
+      const next = { ...all[oldId] };
+      if (body.video !== undefined) next.video = body.video || "";
+      if (body.audio !== undefined) next.audio = body.audio || "";
+      const changed = next.video !== all[oldId].video || next.audio !== all[oldId].audio;
+      if (newId !== oldId) delete all[oldId];
+      all[newId] = next;
+      return { conf: next, mediaChanged: changed };
+    }));
+  } catch (err) {
+    return sendError(res, err, "Admin");
+  }
 
   if (newId !== oldId) {
     // Every open screen reloads itself with ?screen=<newId>
@@ -763,12 +862,16 @@ app.patch("/api/totem/:id", (req, res) => {
 });
 
 // Delete: DELETE /api/totem/:id  — removes the saved config (video, audio, links)
-app.delete("/api/totem/:id", (req, res) => {
+app.delete("/api/totem/:id", async (req, res) => {
   const { id } = req.params;
-  if (!totemsConf[id]) return res.status(404).json({ error: "Totem não encontrado" });
-
-  delete totemsConf[id];
-  saveTotemsConf(totemsConf);
+  try {
+    await mutateConfig(conf => {
+      if (!conf[id]) throw new HttpError(404, "Totem não encontrado");
+      delete conf[id];
+    });
+  } catch (err) {
+    return sendError(res, err, "Admin");
+  }
   console.log(`[Admin] Deleted totem ${id}`);
   res.json({ success: true, id, still_online: instances.online(id).length > 0 });
 });
@@ -1082,7 +1185,27 @@ function computeCorrection(clientPosition, startTime, duration) {
 
 // ── Start server ────────────────────────────────────────────────────────────
 // Load the media library first (the bucket listing in S3 mode), then listen
-mediaStore.init().then(() => server.listen(PORT, "0.0.0.0", () => {
+// Never start with an empty config by mistake: retry a few times, then give up
+async function loadConfigWithRetry(attempts = 3) {
+  for (let i = 1; ; i++) {
+    try {
+      totemsConf = await configStore.load();
+      return;
+    } catch (err) {
+      if (i >= attempts) throw err;
+      console.warn(`[Config] Load failed (${err.message}) — retrying (${i}/${attempts - 1})`);
+      await new Promise(r => setTimeout(r, 1000 * i));
+    }
+  }
+}
+
+Promise.all([
+  mediaStore.init(),
+  loadConfigWithRetry(),
+]).catch(err => {
+  console.error(`\n  ❌ Could not load the campaigns config from ${configStore.describe()}: ${err.message}\n`);
+  process.exit(1);
+}).then(() => server.listen(PORT, "0.0.0.0", () => {
   console.log(`\n  🎬 OOH Audio Sync running on http://0.0.0.0:${PORT}`);
   console.log(`  📺 Totem:  ${PUBLIC_URL}/static/totem.html?screen=totem1`);
   console.log(`  ⚙️  Admin:  ${PUBLIC_URL}/admin`);
@@ -1096,6 +1219,8 @@ mediaStore.init().then(() => server.listen(PORT, "0.0.0.0", () => {
     if (!status.ok) console.error(`  ❌ Could not list the S3 bucket: ${status.error}\n`);
     // Pick up changes made outside the admin (console, s3-sync, another server)
     setInterval(() => mediaStore.refresh(), 60000).unref();
+    console.log(`  🗂️  Campaigns config: ${configStore.describe()} (${Object.keys(totemsConf).length} campaigns, shared by every server on this bucket/prefix)\n`);
+    setInterval(refreshConfig, CONFIG_REFRESH_MS).unref();
   } else {
     console.log(`  📁 Media library: ${mediaStore.describe()} (${mediaStore.list().length} files)\n`);
   }
