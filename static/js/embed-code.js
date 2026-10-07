@@ -11,16 +11,26 @@
         return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
     }
 
+    const trimOrigin = origin => String(origin).replace(/\/+$/, "");
+
     // Only non-default options go into the URL
-    function buildEmbedUrl({ origin, campaign, fit, showQr, listen }) {
+    function buildEmbedUrl({ origin, campaign, fit, showQr, listen, pair }) {
         const params = new URLSearchParams({ screen: campaign });
         if (fit === "contain") params.set("fit", "contain");
         if (showQr === false) params.set("showqr", "false");
         if (listen === "on" || listen === "off") params.set("listen", listen);
-        return `${String(origin).replace(/\/+$/, "")}/static/totem.html?${params}`;
+        if (pair) params.set("pair", pair);
+        return `${trimOrigin(origin)}/static/totem.html?${params}`;
     }
 
-    function buildEmbedCode(opts) {
+    // Standalone QR iframe that follows the totem iframe on the same page
+    function buildQrUrl({ origin, campaign, pair }) {
+        const params = new URLSearchParams({ screen: campaign });
+        if (pair) params.set("pair", pair);
+        return `${trimOrigin(origin)}/qr?${params}`;
+    }
+
+    function buildTotemCode(opts) {
         const width = clampSize(opts.width, 360);
         const height = clampSize(opts.height, 640);
         const src = escapeAttr(buildEmbedUrl(opts));
@@ -35,7 +45,19 @@
         return `<iframe src="${src}" width="${width}" height="${height}" style="border:0;" ${common}></iframe>`;
     }
 
-    const api = { buildEmbedUrl, buildEmbedCode };
+    // opts.qrSeparate: the totem hides its own QR and a /qr iframe shows it
+    // elsewhere on the page (both must be on the same page; same `pair` if set)
+    function buildEmbedCode(opts) {
+        if (!opts.qrSeparate) return buildTotemCode(opts);
+        const totem = buildTotemCode({ ...opts, showQr: false });
+        const qrSrc = escapeAttr(buildQrUrl(opts));
+        const qrWidth = clampSize(opts.qrWidth, 240);
+        const qrHeight = clampSize(opts.qrHeight, 300);
+        return `${totem}\n\n<!-- QR Code -->\n` +
+            `<iframe src="${qrSrc}" width="${qrWidth}" height="${qrHeight}" style="border:0;" title="QR Code para ouvir o áudio"></iframe>`;
+    }
+
+    const api = { buildEmbedUrl, buildEmbedCode, buildQrUrl };
     if (typeof module !== "undefined" && module.exports) module.exports = api;
     else root.EmbedCode = api;
 })(typeof window !== "undefined" ? window : globalThis);

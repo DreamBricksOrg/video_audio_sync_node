@@ -681,6 +681,8 @@ document.addEventListener('DOMContentLoaded', () => {
         listen: document.getElementById('embedListen'),
         responsive: document.getElementById('embedResponsive'),
         showQr: document.getElementById('embedShowQr'),
+        qrSeparate: document.getElementById('embedQrSeparate'),
+        pair: document.getElementById('embedPair'),
     };
     const embedCode = document.getElementById('embedCode');
     const embedPreview = document.getElementById('embedPreview');
@@ -697,14 +699,21 @@ document.addEventListener('DOMContentLoaded', () => {
             listen: embedFields.listen.value,
             responsive: embedFields.responsive.checked,
             showQr: embedFields.showQr.checked,
+            qrSeparate: embedFields.qrSeparate.checked,
+            pair: embedFields.pair.value.trim().replace(/[^A-Za-z0-9_-]/g, ''),
         };
     }
 
     function refreshEmbedCode() {
         if (!embedCampaign) return;
         const opts = embedOptions();
+        document.getElementById('embedPairGroup').hidden = !opts.qrSeparate;
+        embedFields.showQr.disabled = opts.qrSeparate; // the totem never shows its own QR then
         embedCode.value = EmbedCode.buildEmbedCode(opts);
-        embedPreview.href = EmbedCode.buildEmbedUrl(opts);
+        // Separate QR: preview page with both iframes side by side
+        embedPreview.href = opts.qrSeparate
+            ? `/static/embed-preview.html?${new URLSearchParams({ screen: opts.campaign, pair: opts.pair, fit: opts.fit, listen: opts.listen })}`
+            : EmbedCode.buildEmbedUrl(opts);
     }
 
     function openEmbedEditor(campaign) {

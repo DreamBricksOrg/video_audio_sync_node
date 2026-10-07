@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { buildEmbedUrl, buildEmbedCode } = require("../static/js/embed-code");
+const { buildEmbedUrl, buildEmbedCode, buildQrUrl } = require("../static/js/embed-code");
 
 const base = { origin: "https://audio.exemplo.com/", campaign: "camp_1", width: 360, height: 640 };
 
@@ -28,6 +28,20 @@ test("responsive code keeps the aspect ratio in a wrapper", () => {
 test("ampersands in the URL are escaped in the HTML", () => {
   const code = buildEmbedCode({ ...base, fit: "contain" });
   assert.match(code, /screen=camp_1&amp;fit=contain/);
+});
+
+test("separate QR: totem without its own QR plus a /qr iframe of the same campaign", () => {
+  const code = buildEmbedCode({ ...base, qrSeparate: true, qrWidth: 240, qrHeight: 300 });
+  const [totem, qr] = code.split("<!-- QR Code -->");
+  assert.match(totem, /totem\.html\?screen=camp_1&amp;showqr=false/);
+  assert.match(qr, /<iframe src="https:\/\/audio\.exemplo\.com\/qr\?screen=camp_1" width="240" height="300"/);
+});
+
+test("pair links one QR to one totem", () => {
+  assert.equal(buildQrUrl({ origin: "https://a.com", campaign: "c", pair: "loja-2" }), "https://a.com/qr?screen=c&pair=loja-2");
+  const code = buildEmbedCode({ ...base, qrSeparate: true, pair: "loja-2" });
+  assert.match(code, /totem\.html\?screen=camp_1&amp;showqr=false&amp;pair=loja-2/);
+  assert.match(code, /\/qr\?screen=camp_1&amp;pair=loja-2/);
 });
 
 test("sizes are clamped to sane integers", () => {

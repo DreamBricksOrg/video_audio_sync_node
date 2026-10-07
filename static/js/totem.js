@@ -46,11 +46,26 @@ if (SHOW_QR) {
     qrOverlay.remove();
 }
 
+// ── Separate QR iframe (/qr?screen=…) on the same page ──
+// Publishes this instance so a QR iframe follows it (?pair= links one QR to
+// one totem when a page has several totems of the same campaign).
+const qrPublisher = window.BroadcastChannel && window.QrChannel
+    ? QrChannel.createQrPublisher({
+        campaign: SCREEN_ID, pair: urlParams.get('pair') || "", instance: INSTANCE_ID, mobileUrl: MOBILE_URL,
+    })
+    : null;
+window.addEventListener("pagehide", () => qrPublisher && qrPublisher.close());
+
 // ── QR hide/show (hides for N video loops) ─────────────
+// Runs even with showqr=false, so a separate QR iframe hides/shows too
+function setQrHidden(hidden) {
+    if (SHOW_QR) qrOverlay.classList.toggle("hidden", hidden);
+    if (qrPublisher) qrPublisher.setHidden(hidden);
+}
+
 function hideQrForLoops(count) {
-    if (!SHOW_QR) return;
     loopsToHide = count;
-    qrOverlay.classList.add("hidden");
+    setQrHidden(true);
     console.log(`[Totem] QR hidden for ${count} loops`);
 }
 
@@ -60,7 +75,7 @@ video.addEventListener("seeked", () => {
         loopsToHide--;
         console.log(`[Totem] Loop — ${loopsToHide} remaining`);
         if (loopsToHide <= 0) {
-            qrOverlay.classList.remove("hidden");
+            setQrHidden(false);
             console.log("[Totem] QR visible again");
         }
     }

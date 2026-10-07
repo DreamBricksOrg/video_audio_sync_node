@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code — Áudio sincronizado</title>
+    <link rel="stylesheet" href="/static/css/design-system/styles.css">
+    <link rel="stylesheet" href="/static/css/qr.css">
+</head>
+<body data-state="waiting">
+    <!-- Follows the totem iframe on the same page (see js/qr-channel.js) -->
+    <a class="qr-card" id="qrLink" target="_blank" rel="noopener" aria-label="Abrir a página para ouvir o áudio">
+        <div class="qr-code" id="qrWrapper"></div>
+
+        <p class="qr-label state-ready">Escaneie para ouvir o áudio</p>
+
+        <p class="qr-label state-waiting">
+            <span class="spinner" aria-hidden="true"></span>
+            Aguardando o vídeo…
+        </p>
+
+        <p class="qr-label state-connected">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            Celular conectado
+        </p>
+    </a>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <script src="/static/js/qr-channel.js"></script>
+    <script src="/static/js/qr.js"></script>
+</body>
+</html>

@@ -160,6 +160,13 @@ Decisões que importam:
 - O drift usa `syncData.instance` (a instância que o servidor de fato resolveu) — importante para QR sem instância.
 - O debug mostra a campanha + início do ID da instância.
 
+**QR em iframe separado** (`/qr` → `static/qr.html`, `js/qr.js`, `js/qr-channel.js`)
+- O site coloca o vídeo (`showqr=false`) e o QR (`/qr?screen=X`) em dois iframes da mesma página.
+- **Pareamento sem servidor** por `BroadcastChannel` (`audiosync-qr:<campanha>[:<pair>]`): o totem publica `{instance, mobileUrl, hidden}`; o QR pede o estado ao abrir (`hello`) e segue as mudanças. Ao sair (`pagehide`) o totem avisa `gone` → o QR mostra "Aguardando o vídeo…".
+- Atualiza sozinho: nova instância quando o vídeo recarrega; "Celular conectado" enquanto o QR do totem estaria escondido (`mobile_connected`, 2 loops) — a contagem de loops roda mesmo com `showqr=false`.
+- `pair` separa vários vídeos da mesma campanha na mesma página. Iframes do mesmo servidor na mesma página compartilham o canal (o navegador particiona por site de topo, então funciona dentro de sites de terceiros).
+- Testável no Node (`BroadcastChannel` é global): `tests/qr-channel.test.js`.
+
 **Admin** (`static/admin.html`, `js/admin.js`, `js/embed-code.js`)
 - Card mostra **Telas abertas** e **Celulares ouvindo**.
 - Ícone `</>` → modal de **incorporação**: largura/altura, responsivo (wrapper com `aspect-ratio`), ajuste do vídeo, QR, "Ouvir aqui"; gera o `<iframe>` pronto (com `allow="autoplay; fullscreen"`) e copia.

@@ -16,6 +16,14 @@ test("server starts with the temporary totems file", async () => {
   assert.deepEqual(totems.map(t => t.id), ["camp"]);
 });
 
+test("/qr serves the standalone QR page without login", async () => {
+  const res = await fetch(`${server.base}/qr?screen=camp`, { redirect: "manual" });
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /qr-channel\.js/);
+  assert.match(html, /js\/qr\.js/);
+});
+
 test("admin writes go to TOTEMS_FILE, not the project totems.json", async () => {
   const cookie = await server.login();
   const res = await fetch(`${server.base}/api/totems`, {

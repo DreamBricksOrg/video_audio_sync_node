@@ -316,6 +316,9 @@ function requireAuth(req, res, next) {
 // Brute-force guard: lock an IP for a minute after repeated failures
 const loginFailures = new Map(); // ip → { count, lockedUntil }
 
+// Standalone QR iframe: follows the totem iframe on the same page (public)
+app.get("/qr", (req, res) => res.sendFile(path.join(STATIC_DIR, "qr.html")));
+
 app.get("/login", (req, res) => {
   if (isAuthenticated(req)) return res.redirect("/admin");
   res.sendFile(path.join(STATIC_DIR, "login.html"));

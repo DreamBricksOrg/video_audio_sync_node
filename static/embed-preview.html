@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prévia — vídeo + QR separado</title>
+    <link rel="stylesheet" href="/static/css/design-system/styles.css">
+    <style>
+        body { margin: 0; padding: var(--space-6); font-family: var(--font-body); background: var(--surface-page); color: var(--text-primary); }
+        h1 { font-size: var(--text-lg); color: var(--db-blue-900); margin-bottom: var(--space-1); }
+        p { font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-5); max-width: 720px; }
+        .row { display: flex; flex-wrap: wrap; gap: var(--space-6); align-items: flex-start; }
+        iframe { border: 0; border-radius: var(--radius-md); box-shadow: var(--shadow-md); background: #000; }
+        #qr { background: transparent; box-shadow: none; }
+    </style>
+</head>
+<body>
+    <h1>Prévia: vídeo e QR em iframes separados</h1>
+    <p>Simula um site com os dois iframes na mesma página. O QR segue o vídeo sozinho: recarregue o vídeo para ver o QR trocar de instância, ou escaneie para ver o "Celular conectado".</p>
+    <div class="row">
+        <iframe id="totem" width="360" height="640" allow="autoplay; fullscreen" title="Vídeo"></iframe>
+        <iframe id="qr" width="240" height="300" title="QR Code"></iframe>
+    </div>
+    <script src="/static/js/embed-code.js"></script>
+    <script>
+        const p = new URLSearchParams(location.search);
+        const opts = {
+            origin: location.origin,
+            campaign: p.get("screen") || "totem1",
+            pair: (p.get("pair") || "").replace(/[^A-Za-z0-9_-]/g, ""),
+            fit: p.get("fit") || "",
+            listen: p.get("listen") || "",
+            showQr: false,
+        };
+        document.getElementById("totem").src = EmbedCode.buildEmbedUrl(opts);
+        document.getElementById("qr").src = EmbedCode.buildQrUrl(opts);
+    </script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+/* Standalone QR iframe (/qr?screen=…). Fills the frame; sizes scale with it.
+   Transparent page background so it blends into the embedding site. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: var(--font-body);
+}
+
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(4px, 3vmin, 16px);
+
+    --qr-size: clamp(64px, 68vmin, 520px);
+    --qr-font: clamp(11px, 5.5vmin, 22px);
+}
+
+.qr-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: calc(var(--qr-font) * 0.6);
+    padding: calc(var(--qr-font) * 0.9);
+    background: var(--surface-card);
+    color: var(--db-blue-900);
+    /* brand "capsule" plate: one fully rounded corner */
+    border-radius: var(--radius-lg) calc(var(--qr-font) * 3) var(--radius-lg) var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+}
+.qr-card[href] { cursor: pointer; }
+.qr-card:focus-visible { outline: none; box-shadow: var(--shadow-md), var(--shadow-focus); }
+
+.qr-code {
+    width: var(--qr-size);
+    height: var(--qr-size);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity var(--duration-slow) var(--ease-standard);
+}
+.qr-code canvas,
+.qr-code img {
+    display: block;
+    width: var(--qr-size) !important;
+    height: var(--qr-size) !important;
+    border-radius: var(--radius-sm);
+}
+
+.qr-label {
+    display: none;
+    align-items: center;
+    gap: 0.4em;
+    font-size: var(--qr-font);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-snug);
+    text-align: center;
+}
+.qr-label svg { width: 1.2em; height: 1.2em; color: var(--db-success-500); flex-shrink: 0; }
+
+/* ── States ── */
+[data-state="ready"] .state-ready,
+[data-state="waiting"] .state-waiting,
+[data-state="connected"] .state-connected { display: flex; }
+
+/* Waiting: no code yet, keep the card size */
+[data-state="waiting"] .qr-code { opacity: 0.15; background: var(--surface-sunken); border-radius: var(--radius-sm); }
+[data-state="waiting"] .state-waiting { color: var(--text-secondary); }
+
+/* A phone is listening: the totem hides its QR, here we fade it and say so */
+[data-state="connected"] .qr-code { opacity: 0.12; }
+
+.spinner {
+    width: 1em;
+    height: 1em;
+    border: 2px solid var(--border-default);
+    border-top-color: var(--db-blue-500);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

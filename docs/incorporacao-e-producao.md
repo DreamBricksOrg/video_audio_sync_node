@@ -19,6 +19,20 @@ Parâmetros da URL `/static/totem.html`:
 | `fit` | `contain` mostra o vídeo inteiro | preenche e corta |
 | `showqr` | `false` esconde o QR | mostra |
 | `listen` | `on` / `off` / `auto` — botão "Ouvir aqui" no lugar do QR | `auto` (celular) |
+| `pair` | ID livre — liga o vídeo ao seu iframe de QR (abaixo) | — |
+
+### QR em um iframe separado
+
+Para mostrar o QR em outro lugar da página (fora do vídeo), use dois iframes **na mesma página**: o vídeo com `showqr=false` e o QR em `/qr`:
+
+```html
+<iframe src="https://SEU-SERVIDOR/static/totem.html?screen=totem1&showqr=false"
+        width="360" height="640" allow="autoplay; fullscreen" style="border:0;"></iframe>
+
+<iframe src="https://SEU-SERVIDOR/qr?screen=totem1" width="240" height="300" style="border:0;"></iframe>
+```
+
+O vídeo avisa o QR qual é a instância dele (canal do navegador, sem servidor). O QR se atualiza sozinho: troca quando o vídeo recarrega (nova instância), mostra "Celular conectado" quando alguém escaneia e "Aguardando o vídeo…" enquanto o vídeo não abriu. Se a página tiver **mais de um vídeo da mesma campanha**, use o mesmo `pair` em cada dupla (`&pair=topo` no vídeo e no QR). O admin gera esse código (opção "QR em iframe separado") e tem uma prévia com os dois iframes.
 
 - O QR também é clicável: abre a página do celular daquela tela em uma nova aba.
 - **"Ouvir aqui"** aparece no lugar do QR quando a página é aberta em um celular (tela de toque com até 820px). O áudio toca no próprio aparelho, sincronizado com o vídeo. Um totem físico de 1080px continua mostrando o QR.
