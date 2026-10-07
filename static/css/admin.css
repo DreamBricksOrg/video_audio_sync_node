@@ -498,3 +498,24 @@ html, body {
 @media (max-width: 520px) {
     .stats-controls, .stats-controls .custom-select, .stats-controls .btn { width: 100%; }
 }
+
+/* ── Playlist editor & schedule (totem modal) ── */
+.plain-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.plain-fieldset legend { padding: 0; margin-bottom: 6px; }
+.playlist-rows { list-style: none; display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0; }
+.playlist-row {
+    display: grid; grid-template-columns: 22px 1fr 1fr auto; gap: var(--space-2); align-items: center;
+}
+.playlist-row .row-num { font-size: var(--text-sm); color: var(--text-tertiary); text-align: right; }
+.playlist-row .row-actions { display: flex; gap: 2px; }
+.playlist-row .custom-select { min-width: 0; }
+.schedule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-bottom: var(--space-3); }
+.card-playlist { list-style: decimal; padding-left: var(--space-5); font-size: var(--text-sm); color: var(--text-secondary); }
+.card-playlist li { overflow-wrap: anywhere; }
+.card-note-info { background: var(--db-blue-50); color: var(--db-blue-900); }
+@media (max-width: 520px) {
+    .playlist-row { grid-template-columns: 22px 1fr auto; }
+    .playlist-row .pl-audio { grid-column: 2; }
+    .schedule-grid { grid-template-columns: 1fr; }
+}
+.card-fields > .form-label { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }

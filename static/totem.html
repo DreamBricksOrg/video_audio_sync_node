@@ -9,8 +9,14 @@
 </head>
 <body>
     <div class="totem-container">
-        <!-- Video: populated dynamically by JS -->
-        <video id="video" autoplay loop muted playsinline preload="auto"></video>
+        <!-- Videos: two elements take turns playing the playlist (totem.js) -->
+        <video id="video" class="totem-video" muted playsinline preload="auto"></video>
+        <video id="video2" class="totem-video standby" muted playsinline preload="auto"></video>
+
+        <!-- Nothing on air (outside the campaign period, no fallback) -->
+        <div class="idle-screen" id="idleScreen" hidden>
+            <img src="/static/images/dreambricks-horizontal-onblue.svg" alt="DreamBricks">
+        </div>
 
         <!-- Status -->
         <!-- <div class="status-bar">

@@ -9,11 +9,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // `media`: filenames to create (tiny placeholder files) in a temporary assets/
 // folder, so configs that reference them pass the "file exists" checks.
-async function startServer({ totems = {}, env = {}, media = [] } = {}) {
+// `files`: { name: path } real media copied into that folder (browser tests).
+async function startServer({ totems = {}, env = {}, media = [], files = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "audiosync-test-"));
   const assetsDir = path.join(dir, "assets");
   fs.mkdirSync(assetsDir);
   media.forEach(name => fs.writeFileSync(path.join(assetsDir, name), "placeholder"));
+  Object.entries(files).forEach(([name, src]) => fs.copyFileSync(src, path.join(assetsDir, name)));
   const totemsFile = path.join(dir, "totems.json");
   fs.writeFileSync(totemsFile, JSON.stringify(totems, null, 2));
   // Empty .env: tests must never pick up the developer's real config (S3, CORS, limits…)

@@ -185,6 +185,15 @@ paths:
                       type: string
                       nullable: true
                       example: "ivete_video.mp4"
+                    playlist:
+                      type: array
+                      description: Videos in order (loop), each with the audio phones play while it shows
+                      items: { $ref: '#/components/schemas/PlaylistItem' }
+                    schedule: { $ref: '#/components/schemas/Schedule' }
+                    showing:
+                      type: string
+                      nullable: true
+                      description: Campaign whose content is on air now (itself, its fallback, or null = black screen with logo)
     post:
       summary: Create Totem
       description: ID must be 1–40 letters, numbers, `-` or `_`. Video/audio are optional but must exist in `assets/`.
@@ -198,6 +207,11 @@ paths:
                 id: { type: string, example: shopping_paulista_1 }
                 video: { type: string, example: promo.mp4 }
                 audio: { type: string, example: promo.mp3 }
+                playlist:
+                  type: array
+                  description: Instead of video/audio, several videos in order (max 20)
+                  items: { $ref: '#/components/schemas/PlaylistItem' }
+                schedule: { $ref: '#/components/schemas/Schedule' }
       responses:
         '201':
           description: Created
@@ -229,6 +243,12 @@ paths:
                 id: { type: string, example: totem1_lobby }
                 video: { type: string }
                 audio: { type: string }
+                playlist:
+                  type: array
+                  items: { $ref: '#/components/schemas/PlaylistItem' }
+                schedule:
+                  allOf: [{ $ref: '#/components/schemas/Schedule' }]
+                  description: "null = always on air"
       responses:
         '200':
           description: Updated
@@ -610,3 +630,19 @@ paths:
           description: File not found
         '416':
           description: Range not satisfiable
+
+components:
+  schemas:
+    PlaylistItem:
+      type: object
+      properties:
+        video: { type: string, example: verao_video.mp4 }
+        audio: { type: string, example: verao_audio.mp3, description: "Empty = silence on the phone during this video" }
+    Schedule:
+      type: object
+      nullable: true
+      description: Period on air (UTC ISO dates, both optional). Outside it the campaign shows `fallback`'s content, or a black screen with the logo.
+      properties:
+        start: { type: string, format: date-time, nullable: true }
+        end: { type: string, format: date-time, nullable: true }
+        fallback: { type: string, nullable: true, description: Another campaign id }

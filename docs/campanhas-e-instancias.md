@@ -266,3 +266,20 @@ Decisões que importam:
 | `a29b22b` | CI no GitHub Actions |
 | `a21eb13` | Biblioteca de mídia só no S3 |
 | `c7301c2` | Mídia local removida do repositório |
+
+## 14. Evolução: playlists e agendamento
+
+Uma campanha pode ter **vários vídeos em sequência**, cada um com o próprio áudio, e um **período no ar**.
+
+**Config** (`totems.json`): `playlist: [{ video, audio }]` (só com 2+ itens; `video`/`audio` continuam espelhando o primeiro item, para versões antigas) e `schedule: { start, end, fallback }` (datas ISO em UTC). Fora do período a campanha mostra o conteúdo da campanha `fallback`; sem ela, tela preta com o logo. A decisão fica em uma função pura, `activeContent()` em `lib/campaign-content.js` (com proteção contra ciclos de fallback).
+
+**Linha do tempo:** a sincronia continua sendo um ciclo único (`start_time` + `duration` no relógio do servidor). Com playlist, o ciclo é a soma dos vídeos:
+
+1. A tela mede a duração de cada vídeo (metadados) e registra `{ current_time: posição no ciclo, duration: total, items: [d1, d2, …] }`. Registra de novo sempre que carrega conteúdo novo.
+2. O `sync` do celular traz `items: [{ audio, start, duration }]`. Sem durações coerentes da tela, vai um item só (o primeiro áudio no ciclo inteiro).
+3. O celular (`static/js/sync-player.js`, compartilhado por `mobile.js` e `mobile_debug.js`) localiza o item pela posição no ciclo e agenda cada áudio no relógio do Web Audio, sem intervalo entre um e outro. O desvio (`drift_check`/`position_report`) continua em posições do ciclo.
+4. A tela usa dois `<video>` alternados: enquanto um toca, o outro carrega o próximo.
+
+**Mensagens novas:** `change_video` ganhou `playlist`, `idle`, `source` e `key` (a tela ignora uma `key` repetida). O servidor confere a cada 5 s, e depois de cada mudança de config, se o conteúdo de alguma campanha mudou (agendamento começando ou terminando, outro servidor), envia às telas e manda `content_changed` aos celulares ouvindo, que pedem um `sync` novo. Sem nada no ar, o `/ws/mobile` responde `{ type: "idle" }` e fecha com o código **4010**; o celular tenta de novo a cada 30 s.
+
+**Testes:** `tests/campaign-content.test.js`, `tests/sync-player.test.js`, `tests/playlist.integration.test.js` e, com mídia real gerada pelo ffmpeg (WebM/WAV), `e2e/playlist.spec.js` — confere que o celular fica a menos de 0,3 s da linha do tempo enquanto troca de áudio.

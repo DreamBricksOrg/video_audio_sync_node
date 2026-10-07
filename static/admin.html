@@ -170,15 +170,32 @@
                 </p>
             </div>
 
-            <div class="form-group">
-                <label for="totemVideoSelect">Vídeo</label>
-                <select id="totemVideoSelect" class="custom-select"></select>
-            </div>
+            <fieldset class="form-group plain-fieldset">
+                <legend class="form-label">Vídeos, em ordem</legend>
+                <p class="field-hint">Tocam um depois do outro e repetem. Cada vídeo tem o áudio que toca no celular enquanto ele aparece.</p>
+                <ol id="playlistRows" class="playlist-rows"></ol>
+                <button type="button" class="btn btn-secondary btn-sm" id="addPlaylistRow">
+                    <i data-lucide="plus"></i> Adicionar vídeo
+                </button>
+            </fieldset>
 
-            <div class="form-group">
-                <label for="totemAudioSelect">Áudio (celular)</label>
-                <select id="totemAudioSelect" class="custom-select"></select>
-            </div>
+            <fieldset class="form-group plain-fieldset">
+                <legend class="form-label">Período no ar (opcional)</legend>
+                <div class="schedule-grid">
+                    <label class="form-group">
+                        <span class="field-hint">Começa em</span>
+                        <input type="datetime-local" id="totemStart" class="text-input">
+                    </label>
+                    <label class="form-group">
+                        <span class="field-hint">Termina em</span>
+                        <input type="datetime-local" id="totemEnd" class="text-input">
+                    </label>
+                </div>
+                <label class="form-group">
+                    <span class="field-hint">Fora do período, mostrar</span>
+                    <select id="totemFallback" class="custom-select"></select>
+                </label>
+            </fieldset>
 
             <p id="totemError" class="form-error" role="alert" hidden></p>
 

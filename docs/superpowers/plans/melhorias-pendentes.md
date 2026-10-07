@@ -4,7 +4,7 @@ Backlog do que ainda falta implementar. Os planos de **Campanhas e Instâncias (
 
 Antes de implementar um item, gere um plano detalhado com a skill **superpowers:writing-plans** (arquivo `YYYY-MM-DD-<nome>.md` nesta pasta).
 
-Atualizado em 2026-10-07 (alta prioridade concluída).
+Atualizado em 2026-10-07 (alta prioridade e média — menos 8 e 11 — concluídas).
 
 ---
 
@@ -28,6 +28,14 @@ Atualizado em 2026-10-07 (alta prioridade concluída).
 - **Um prefixo do S3 por ambiente** (`audiosync` produção, `audiosync-dev` desenvolvimento)
 - `npm audit` zerado (`express` atualizado, `yamljs` trocado por `yaml`)
 - **Testes no navegador** com Playwright (`npm run test:e2e`), também no CI
+- **Totem com tela de toque**: `?qrlink=false` (QR visível, mas não clicável)
+- **Página de debug** (`mobile_debug.html`) só com login do admin
+- **Limites dos celulares** por IP: `MAX_PHONES_PER_IP` (ouvindo ao mesmo tempo) e `MAX_SYNCS_PER_IP_PER_MINUTE`
+- **Sessão de login revogável**: sessões em `sessions.json` (no bucket no modo S3), "Sair" encerra de verdade, botão "Desconectar outros aparelhos"
+- **Envio direto do navegador para o S3** com URL pré-assinada (10 min, só aquele arquivo/tamanho); sem CORS de PUT no bucket, cai no envio pelo servidor
+- **Estatísticas por campanha**: telas abertas, escaneamentos, celulares ouvindo, tempo médio, sites; um arquivo por dia (90 dias), gráfico e CSV no admin
+- **Playlists e agendamento**: vários vídeos em sequência, cada um com seu áudio (o celular troca junto); período no ar com campanha padrão ou tela preta com logo
+- Lógica do celular unificada em `static/js/sync-player.js` (antigo item 17)
 
 ---
 
@@ -39,39 +47,19 @@ Nada pendente — os 6 itens de alta prioridade foram concluídos em 2026-10-07 
 
 ## Média — experiência e operação
 
-### 7. Envio direto do navegador para o S3
-Hoje o upload passa pelo servidor antes de ir para o bucket. Com URLs pré-assinadas, o admin envia direto ao S3 (mais rápido, sem usar a banda do servidor); o servidor só registra. O separador continua passando pelo servidor (precisa do ffmpeg).
+Concluída em 2026-10-07, menos estes dois (adiados por decisão):
 
 ### 8. CloudFront na frente do S3
 Quando o tráfego crescer. Já documentado em `docs/incorporacao-e-producao.md`; só troca `MEDIA_BASE_URL`.
 
-### 9. Estatísticas por campanha
-Escaneamentos, tempo médio ouvindo, site de origem (referrer do iframe), telas abertas ao longo do dia; painel no admin e exportação.
-
-### 10. Agendamento e playlists
-Campanha com data de início/fim e vários vídeos em sequência.
-
 ### 11. Vídeo em várias qualidades (HLS)
-Para conexões lentas; o separador geraria as variantes.
-
-### 12. Sessão de login revogável
-Hoje "Sair" não invalida um cookie copiado. Guardar sessões no servidor + "desconectar todos".
-
-### 13. Página de debug protegida
-`mobile_debug.html` é pública; exigir login do admin.
-
-### 14. Limite de conexões dos celulares
-Só as telas têm limite por IP; aplicar o mesmo aos sockets de sync/drift.
-
-### 15. Totem com tela de toque
-Parâmetro `?qrlink=false` para o toque no QR não abrir uma aba por cima do vídeo.
+Para conexões lentas; o separador geraria as variantes. Exige trocar o `<video>` por um player HLS (hls.js) no totem.
 
 ---
 
 ## Baixa — código e manutenção
 
-16. Dividir o `server.js` (~1.100 linhas) em módulos: auth, mídia, totens, WebSocket.
-17. Juntar a lógica repetida de `mobile.js` e `mobile_debug.js`.
+16. Dividir o `server.js` (~1.500 linhas) em módulos: auth, mídia, totens, estatísticas, WebSocket.
 18. Remover rotas antigas `/api/videos` e `/api/audios` (substituídas por `/api/media`).
 19. Logs estruturados, alerta de erros (Sentry ou similar) e monitor de disponibilidade no `/health`.
 20. Vários usuários no admin, com permissões e registro de quem fez o quê.

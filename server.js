@@ -37,6 +37,10 @@ const { createLocalStore, createS3Store } = require("./lib/media-store");
 const { createFileConfigStore, createS3ConfigStore, isConfigConflict } = require("./lib/config-store");
 const { createSyncedDoc, SyncConflictError } = require("./lib/synced-doc");
 const { createStats, toCsv } = require("./lib/stats");
+const {
+  playlistOf, withPlaylist, activeContent, contentKey, campaignsUsing, renameInConfig,
+  sanitizePlaylist, sanitizeSchedule,
+} = require("./lib/campaign-content");
 
 // ── Config ──────────────────────────────────────────────────────────────────
 // Load .env (Node >= 20.12 built-in); real env vars take precedence.
@@ -118,15 +122,49 @@ function sendToCampaign(campaign, message) {
   return online.length;
 }
 
-// What a screen needs to play a campaign: the video, plus the audio for "Ouvir aqui"
+// What a campaign shows right now: its playlist, its fallback campaign's
+// (outside its schedule), or null = nothing (black screen with logo)
+const contentFor = campaign => activeContent(totemsConf, campaign, new Date());
+
+// What a screen needs to play a campaign: the videos in order, each with the
+// audio for "Ouvir aqui". filename/url/audio = first item (older pages).
 function videoMessage(campaign) {
-  const conf = totemsConf[campaign] || {};
+  const content = contentFor(campaign);
+  const playlist = content ? content.playlist : [];
+  const first = playlist[0] || {};
   return {
     type: "change_video",
-    filename: conf.video || "",
-    url: mediaUrl(conf.video),
-    audio: mediaUrl(conf.audio),
+    filename: first.video || "",
+    url: mediaUrl(first.video),
+    audio: mediaUrl(first.audio),
+    playlist: playlist.map(i => ({ video: i.video, url: mediaUrl(i.video), audio: mediaUrl(i.audio) })),
+    idle: !content,
+    source: content ? content.source : null,
+    key: contentKey(content),
   };
+}
+
+// Sends the content to the open screens of every campaign whose content
+// changed since it was last sent (config edits, other servers, schedule start/
+// end), and tells their listening phones to sync again.
+const sentContentKeys = new Map(); // campaign → key last sent to its screens
+function broadcastContent() {
+  const online = new Set(instances.campaignsOnline());
+  for (const id of sentContentKeys.keys()) if (!online.has(id)) sentContentKeys.delete(id);
+  for (const id of online) {
+    const msg = videoMessage(id);
+    if (sentContentKeys.get(id) === msg.key) continue;
+    sentContentKeys.set(id, msg.key);
+    for (const inst of instances.online(id)) {
+      safeSend(inst.ws, msg);
+      notifyPhones(inst);
+    }
+  }
+}
+
+// Phones listening to an instance: what they play changed, sync again
+function notifyPhones(inst) {
+  inst.drifts.forEach(ws => safeSend(ws, { type: "content_changed" }));
 }
 
 // ── Safe WS send ────────────────────────────────────────────────────────────
@@ -244,17 +282,10 @@ class HttpError extends Error {
 }
 
 // Config changed elsewhere (another server): adopt it and switch this server's
-// open screens whose video/audio changed
+// open screens whose content changed
 function applyRemoteConfig(next) {
-  const prev = totemsConf;
   totemsConf = next;
-  for (const id of new Set([...Object.keys(prev), ...Object.keys(next)])) {
-    const before = prev[id] || {};
-    const after = next[id] || {};
-    if (after.video && (before.video !== after.video || before.audio !== after.audio)) {
-      sendToCampaign(id, videoMessage(id));
-    }
-  }
+  broadcastContent();
 }
 
 const configDoc = createSyncedDoc({
@@ -287,8 +318,12 @@ async function mutateConfig(mutate) {
     throw err;
   } finally {
     totemsConf = configDoc.get();
+    broadcastContent(); // open screens follow the new config right away
   }
 }
+
+// Schedules start and end on their own: check every few seconds
+setInterval(broadcastContent, 5000).unref();
 
 // HttpError → its status; anything else = the config storage failed
 function sendError(res, err, context) {
@@ -647,10 +682,9 @@ function listMedia(type) {
   return mediaStore.list().map(m => m.filename).filter(f => !type || mediaType(f) === type);
 }
 
-// Totem ids whose config references this file
+// Totem ids whose config references this file (in any playlist item)
 function totemsUsing(filename) {
-  return Object.keys(totemsConf).filter(id =>
-    totemsConf[id].video === filename || totemsConf[id].audio === filename);
+  return campaignsUsing(totemsConf, filename);
 }
 
 // Message for the admin when the library storage fails
@@ -891,21 +925,13 @@ app.patch("/api/media/:filename", async (req, res) => {
   try {
     await refreshConfig();
     if (totemsUsing(oldName).length) {
-      updated = await mutateConfig(conf => {
-        const ids = Object.keys(conf).filter(id => conf[id].video === oldName || conf[id].audio === oldName);
-        ids.forEach(id => {
-          if (conf[id].video === oldName) conf[id].video = newName;
-          if (conf[id].audio === oldName) conf[id].audio = newName;
-        });
-        return ids;
-      });
+      // Open screens get the new names (mutateConfig → broadcastContent)
+      updated = await mutateConfig(conf => renameInConfig(conf, oldName, newName));
     }
   } catch (err) {
     console.error("[Media] Rename: config update failed", err.message);
     return res.status(502).json({ error: `Arquivo renomeado, mas não foi possível atualizar os totens: ${err.message}` });
   }
-  // After the config is updated, so the message carries the new names
-  updated.forEach(id => sendToCampaign(id, videoMessage(id)));
 
   console.log(`[Media] Renamed ${oldName} → ${newName}${updated.length ? ` (totems: ${updated.join(", ")})` : ""}`);
   res.json({ success: true, filename: newName, updated_totems: updated });
@@ -940,6 +966,7 @@ app.get("/api/totems", (req, res) => {
 
   res.json([...allIds].map(id => {
     const { instances: openScreens, mobiles } = instances.stats(id);
+    const content = contentFor(id);
     return {
       id,
       configured: !!totemsConf[id], // false = online but never saved in the admin
@@ -948,6 +975,9 @@ app.get("/api/totems", (req, res) => {
       mobile_count: mobiles,        // phones listening (drift sockets)
       video: totemsConf[id] ? totemsConf[id].video : null,
       audio: totemsConf[id] ? totemsConf[id].audio : null,
+      playlist: playlistOf(totemsConf[id]),     // videos in order, each with its audio
+      schedule: (totemsConf[id] && totemsConf[id].schedule) || null,
+      showing: content ? content.source : null, // own id, the fallback's, or null (nothing on air)
       missing: missingMedia(totemsConf[id]), // configured files not in the library
       promo: promoFor(id),
     };
@@ -978,31 +1008,28 @@ app.put("/api/totem/:id/promo", async (req, res) => {
   res.json({ success: true, id, promo });
 });
 
-// Update specific totem's config
+// Update specific totem's config: { playlist: [{ video, audio }] } or { video, audio }
 app.post("/api/totem/:id/config", async (req, res) => {
   const { id } = req.params;
-  const { video, audio } = req.body;
-  
-  if (!video || !audio) return res.status(400).json({ error: "Escolha um vídeo e um áudio" });
-  const mediaError = validateTotemMedia(video, audio);
-  if (mediaError) return res.status(400).json({ error: mediaError });
-  
+  const body = req.body || {};
+  const input = Array.isArray(body.playlist) ? body.playlist : [{ video: body.video, audio: body.audio }];
+  if (!input.length || !input.every(i => i && i.video && i.audio)) {
+    return res.status(400).json({ error: "Escolha um vídeo e um áudio" });
+  }
+  const { playlist, error } = sanitizePlaylist(input, mediaLibrary());
+  if (error) return res.status(400).json({ error });
+
   try {
     await mutateConfig(conf => {
-      if (!conf[id]) conf[id] = {};
-      conf[id].video = video;
-      conf[id].audio = audio;
+      conf[id] = withPlaylist(conf[id] || {}, playlist);
     });
   } catch (err) {
     return sendError(res, err, "Admin");
   }
-  
-  console.log(`[Admin] Assigned video ${video} and audio ${audio} to totem ${id}`);
-  
-  // Every open screen of this campaign switches video right away
-  sendToCampaign(id, videoMessage(id));
-  
-  res.json({ success: true, id, video, audio });
+
+  // Open screens switch right away (mutateConfig → broadcastContent)
+  console.log(`[Admin] Assigned ${playlist.map(i => `${i.video}+${i.audio}`).join(", ")} to totem ${id}`);
+  res.json({ success: true, id, video: playlist[0].video, audio: playlist[0].audio, playlist });
 });
 
 // ── Totems CRUD ─────────────────────────────────────────────────────────────
@@ -1014,7 +1041,49 @@ const TOTEM_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 // unavailable, to avoid false alarms.
 function missingMedia(conf) {
   if (!conf || !mediaStore.status().ok) return [];
-  return [conf.video, conf.audio].filter(f => f && !mediaStore.has(f));
+  const files = [conf.video, conf.audio, ...playlistOf(conf).flatMap(i => [i.video, i.audio])];
+  return [...new Set(files)].filter(f => f && !mediaStore.has(f));
+}
+
+const mediaLibrary = () => ({ videos: listMedia("video"), audios: listMedia("audio") });
+
+// The playlist / schedule of a create or update request → { playlist?, schedule? }
+// (absent = not sent), or { error }
+function campaignFields(body, id, campaignIds) {
+  const out = {};
+  if (body.playlist !== undefined) {
+    const r = sanitizePlaylist(body.playlist, mediaLibrary());
+    if (r.error) return { error: r.error };
+    out.playlist = r.playlist;
+  } else {
+    const err = validateTotemMedia(body.video, body.audio);
+    if (err) return { error: err };
+  }
+  if (body.schedule !== undefined) {
+    const r = sanitizeSchedule(body.schedule, id, campaignIds);
+    if (r.error) return { error: r.error };
+    out.schedule = r.schedule;
+  }
+  return out;
+}
+
+function applyCampaignFields(conf, body, fields) {
+  let next = { ...conf };
+  if (fields.playlist) {
+    next = withPlaylist(next, fields.playlist);
+  } else {
+    if (body.video !== undefined) next.video = body.video || "";
+    if (body.audio !== undefined) next.audio = body.audio || "";
+    // Editing the first video/audio the old way keeps the rest of the playlist
+    if (Array.isArray(next.playlist) && next.playlist.length) {
+      next.playlist = [{ video: next.video, audio: next.audio }, ...next.playlist.slice(1)];
+    }
+  }
+  if (fields.schedule !== undefined) {
+    if (fields.schedule) next.schedule = fields.schedule;
+    else delete next.schedule;
+  }
+  return next;
 }
 
 // Checks optional video/audio fields against the library. Returns an error string or null.
@@ -1024,29 +1093,29 @@ function validateTotemMedia(video, audio) {
   return null;
 }
 
-// Create: POST /api/totems  { id, video?, audio? }
+// Create: POST /api/totems  { id, video?, audio?, playlist?, schedule? }
 app.post("/api/totems", async (req, res) => {
-  const { id, video = "", audio = "" } = req.body || {};
+  const body = req.body || {};
+  const { id } = body;
   if (!TOTEM_ID_RE.test(id || "")) {
     return res.status(400).json({ error: "O ID deve ter de 1 a 40 letras, números, - ou _" });
   }
-  const mediaError = validateTotemMedia(video, audio);
-  if (mediaError) return res.status(400).json({ error: mediaError });
+  const fields = campaignFields(body, id, Object.keys(totemsConf));
+  if (fields.error) return res.status(400).json({ error: fields.error });
 
+  let created;
   try {
     await mutateConfig(conf => {
       if (conf[id]) throw new HttpError(409, `O totem "${id}" já existe`);
-      conf[id] = { video, audio };
+      created = applyCampaignFields({ video: "", audio: "" }, body, fields);
+      conf[id] = created;
     });
   } catch (err) {
     return sendError(res, err, "Admin");
   }
+  // Screens already open under this ID pick up the video right away (broadcastContent)
   console.log(`[Admin] Created totem ${id}`);
-
-  // Screens already open under this ID pick up the video right away
-  if (video) sendToCampaign(id, videoMessage(id));
-
-  res.status(201).json({ success: true, id, video, audio });
+  res.status(201).json({ success: true, id, ...created, playlist: playlistOf(created) });
 });
 
 // Update: PATCH /api/totem/:id  { id?, video?, audio? }  — `id` renames the totem
@@ -1057,35 +1126,38 @@ app.patch("/api/totem/:id", async (req, res) => {
   if (!TOTEM_ID_RE.test(newId)) {
     return res.status(400).json({ error: "O ID deve ter de 1 a 40 letras, números, - ou _" });
   }
-  const mediaError = validateTotemMedia(body.video, body.audio);
-  if (mediaError) return res.status(400).json({ error: mediaError });
+  const ids = Object.keys(totemsConf).map(k => (k === oldId ? newId : k));
+  const fields = campaignFields(body, newId, ids);
+  if (fields.error) return res.status(400).json({ error: fields.error });
 
-  let conf, mediaChanged;
+  let conf;
   try {
-    ({ conf, mediaChanged } = await mutateConfig(all => {
+    conf = await mutateConfig(all => {
       if (!all[oldId]) throw new HttpError(404, "Totem não encontrado");
       if (newId !== oldId && all[newId]) throw new HttpError(409, `O totem "${newId}" já existe`);
-      const next = { ...all[oldId] };
-      if (body.video !== undefined) next.video = body.video || "";
-      if (body.audio !== undefined) next.audio = body.audio || "";
-      const changed = next.video !== all[oldId].video || next.audio !== all[oldId].audio;
-      if (newId !== oldId) delete all[oldId];
+      const next = applyCampaignFields(all[oldId], body, fields);
+      if (newId !== oldId) {
+        delete all[oldId];
+        // Campaigns falling back to this one follow the new name
+        for (const c of Object.values(all)) {
+          if (c.schedule && c.schedule.fallback === oldId) c.schedule = { ...c.schedule, fallback: newId };
+        }
+      }
       all[newId] = next;
-      return { conf: next, mediaChanged: changed };
-    }));
+      return next;
+    });
   } catch (err) {
     return sendError(res, err, "Admin");
   }
 
+  // Content changes reach open screens through mutateConfig → broadcastContent
   if (newId !== oldId) {
     // Every open screen reloads itself with ?screen=<newId>
     sendToCampaign(oldId, { type: "change_screen", screen: newId });
-  } else if (mediaChanged && conf.video) {
-    sendToCampaign(oldId, videoMessage(oldId));
   }
 
   console.log(`[Admin] Updated totem ${oldId}${newId !== oldId ? ` → ${newId}` : ""}`);
-  res.json({ success: true, id: newId, renamed_from: newId !== oldId ? oldId : undefined, ...conf });
+  res.json({ success: true, id: newId, renamed_from: newId !== oldId ? oldId : undefined, ...conf, playlist: playlistOf(conf) });
 });
 
 // Delete: DELETE /api/totem/:id  — removes the saved config (video, audio, links)
@@ -1095,6 +1167,10 @@ app.delete("/api/totem/:id", async (req, res) => {
     await mutateConfig(conf => {
       if (!conf[id]) throw new HttpError(404, "Totem não encontrado");
       delete conf[id];
+      // Campaigns falling back to it now show nothing outside their period
+      for (const c of Object.values(conf)) {
+        if (c.schedule && c.schedule.fallback === id) c.schedule = { ...c.schedule, fallback: null };
+      }
     });
   } catch (err) {
     return sendError(res, err, "Admin");
@@ -1287,15 +1363,22 @@ function handleScreen(ws, campaign, instanceId, ip) {
         stats.screenOpened(campaign, data.site);
       }
 
-      // Registration: the screen sends its video.currentTime
+      // Registration: the screen sends its position in the whole cycle
+      // (current_time), the cycle length (duration) and, for playlists, the
+      // length of each video (items). Sent again whenever it loads new content.
+      const hadSession = !!inst.session;
       const session = instances.startSession(inst, data);
-      console.log(`[Screen] Session ${campaign}/${inst.id} — ${session.duration}s (pos: ${(Number(data.current_time) || 0).toFixed(2)}s)`);
+      session.items = itemDurations(data.items, session.duration);
+      console.log(`[Screen] Session ${campaign}/${inst.id} — ${session.duration}s` +
+        `${session.items ? ` (${session.items.length} videos)` : ""} (pos: ${(Number(data.current_time) || 0).toFixed(2)}s)`);
       safeSend(ws, { type: "session_created", screen_id: campaign, instance: inst.id });
+      // Phones already listening must follow the new timeline
+      if (hadSession) notifyPhones(inst);
 
-      // Tell the screen which video to play
-      if (totemsConf[campaign] && totemsConf[campaign].video) {
-        safeSend(ws, videoMessage(campaign));
-      }
+      // Tell the screen what to play
+      const msg = videoMessage(campaign);
+      sentContentKeys.set(campaign, msg.key);
+      safeSend(ws, msg);
     } catch (err) {
       safeSend(ws, { type: "error", detail: err.message });
     }
@@ -1318,6 +1401,30 @@ function handleScreen(ws, campaign, instanceId, ip) {
   });
 }
 
+// Video lengths a screen reports for its playlist (≤ 20 positive numbers that
+// add up to the cycle); null when missing or inconsistent
+function itemDurations(raw, total) {
+  if (!Array.isArray(raw) || !raw.length || raw.length > 20) return null;
+  const list = raw.map(Number);
+  if (!list.every(d => Number.isFinite(d) && d > 0)) return null;
+  const sum = list.reduce((a, b) => a + b, 0);
+  return Math.abs(sum - total) < 0.5 ? list : null;
+}
+
+// The phone's timeline: each item's audio with its start and length in the
+// cycle. Without lengths from the screen (older page, or it hasn't reloaded
+// the new playlist yet), the first audio spans the whole cycle.
+function phoneItems(playlist, session) {
+  const durations = session.items && session.items.length === playlist.length ? session.items : null;
+  if (!durations) return [{ audio: mediaUrl(playlist[0].audio), start: 0, duration: session.duration }];
+  let start = 0;
+  return playlist.map((item, i) => {
+    const entry = { audio: mediaUrl(item.audio), start, duration: durations[i] };
+    start += durations[i];
+    return entry;
+  });
+}
+
 // ── /ws/mobile/:campaign?instance=ID — phone sync (fire-and-close) ──────────
 function handleMobile(ws, campaign, instanceId, ip) {
   if ((TRUST_PROXY || !isLoopback(ip)) && !allowSync(ip)) {
@@ -1331,19 +1438,25 @@ function handleMobile(ws, campaign, instanceId, ip) {
     return;
   }
 
-  const conf = totemsConf[campaign];
-  const audio = mediaUrl(conf && conf.audio) || mediaUrl("ivete_audio.mp3"); // fallback
+  // Nothing on air (outside the period, no fallback): the phone waits
+  const content = contentFor(campaign);
+  if (!content) {
+    safeSend(ws, { type: "idle" });
+    ws.close(4010, "Nothing on air");
+    return;
+  }
 
   // Send sync payload — NEVER send current_position
   safeSend(ws, {
     type: "sync",
     instance: inst.id,               // phone uses it for the drift socket
     start_time: inst.session.start_time,
-    duration: inst.session.duration,
+    duration: inst.session.duration, // whole cycle (all videos)
     server_time: Date.now() / 1000,
     drift_enabled: inst.session.drift_enabled,
-    audio,
-    promo: promoFor(campaign),
+    audio: mediaUrl(content.playlist[0].audio), // first item (older pages)
+    items: phoneItems(content.playlist, inst.session),
+    promo: promoFor(content.source),
   });
 
   stats.scan(campaign);

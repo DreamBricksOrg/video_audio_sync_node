@@ -143,7 +143,8 @@ document.addEventListener('DOMContentLoaded', () => {
         totemsById = Object.fromEntries(totems.map(t => [t.id, t]));
 
         const signature = JSON.stringify([
-            totems.map(t => [t.id, t.configured, t.video, t.audio, t.missing]), videosCache, audiosCache,
+            totems.map(t => [t.id, t.configured, t.video, t.audio, t.missing, t.playlist, t.schedule, t.showing]),
+            videosCache, audiosCache,
         ]);
         if (signature === totemsSignature) {
             totems.forEach(updateTotemStatus);
@@ -162,6 +163,8 @@ document.addEventListener('DOMContentLoaded', () => {
             card.className = 'totem-card';
             card.dataset.id = totem.id;
             const id = escapeHtml(totem.id);
+            // 2+ videos: the card lists them and edits in the modal
+            const isList = (totem.playlist || []).length > 1;
 
             card.innerHTML = `
                 <div class="card-header">
@@ -191,6 +194,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="metric-value mobile-count"></span>
                     </div>
                 </div>
+                ${scheduleNote(totem)}
+                ${isList ? `
+                <div class="card-fields">
+                    <span class="form-label">Vídeos, em ordem</span>
+                    <ol class="card-playlist">${totem.playlist.map(i =>
+                        `<li>${escapeHtml(i.video)}${i.audio ? ` + ${escapeHtml(i.audio)}` : ' (sem áudio)'}</li>`).join('')}</ol>
+                </div>` : `
                 <div class="card-fields">
                     <label class="form-group">
                         <span class="form-label">Vídeo atual</span>
@@ -200,15 +210,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="form-label">Áudio atual (celular)</span>
                         <select class="custom-select audio-select">${mediaOptions(audiosCache, totem.audio, '-- Escolha um áudio --')}</select>
                     </label>
-                </div>
+                </div>`}
                 <div class="card-actions">
-                    <button class="btn btn-primary assign-btn"><i data-lucide="save"></i> Aplicar</button>
+                    ${isList
+                        ? '<button class="btn btn-primary list-btn"><i data-lucide="list-video"></i> Editar</button>'
+                        : '<button class="btn btn-primary assign-btn"><i data-lucide="save"></i> Aplicar</button>'}
                     <button class="btn btn-secondary link-btn"><i data-lucide="smartphone"></i> Celular</button>
                     <button class="btn btn-secondary promo-btn"><i data-lucide="link"></i> Links</button>
                 </div>
             `;
 
-            card.querySelector('.assign-btn').addEventListener('click', () => handleAssignConfig(totem.id, card));
+            if (isList) card.querySelector('.list-btn').addEventListener('click', () => openTotemEditor(totem.id));
+            else card.querySelector('.assign-btn').addEventListener('click', () => handleAssignConfig(totem.id, card));
             card.querySelector('.link-btn').addEventListener('click', () => handleGenerateLink(totem.id));
             card.querySelector('.promo-btn').addEventListener('click', () => openPromoEditor(totem.id));
             if (totem.configured) {
@@ -222,6 +235,23 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         lucide.createIcons();
+    }
+
+    // Period on air: what the campaign shows now and until when
+    function scheduleNote(totem) {
+        const s = totem.schedule;
+        if (!s) return '';
+        const fmt = iso => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const now = Date.now();
+        const showingNow = totem.showing === totem.id ? 'esta campanha'
+            : totem.showing ? `a campanha ${escapeHtml(totem.showing)}` : 'tela preta com o logo';
+        let when;
+        if (s.start && now < Date.parse(s.start)) when = `Começa em ${fmt(s.start)}`;
+        else if (s.end && now >= Date.parse(s.end)) when = `Terminou em ${fmt(s.end)}`;
+        else when = s.end ? `No ar até ${fmt(s.end)}` : `No ar desde ${fmt(s.start)}`;
+        const danger = totem.showing !== totem.id;
+        return `<p class="card-note ${danger ? '' : 'card-note-info'} schedule-note"><i data-lucide="calendar-clock"></i>
+            <span>${when}. Agora: <strong>${showingNow}</strong>.</span></p>`;
     }
 
     function updateTotemStatus(totem) {
@@ -281,8 +311,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const totemForm = document.getElementById('totemForm');
     const totemModalTitle = document.getElementById('totemModalTitle');
     const totemIdInput = document.getElementById('totemIdInput');
-    const totemVideoSelect = document.getElementById('totemVideoSelect');
-    const totemAudioSelect = document.getElementById('totemAudioSelect');
+    const playlistRows = document.getElementById('playlistRows');
+    const totemStart = document.getElementById('totemStart');
+    const totemEnd = document.getElementById('totemEnd');
+    const totemFallback = document.getElementById('totemFallback');
     const totemUrlHint = document.getElementById('totemUrlHint');
     const totemRenameWarning = document.getElementById('totemRenameWarning');
     const totemError = document.getElementById('totemError');
@@ -307,13 +339,71 @@ document.addEventListener('DOMContentLoaded', () => {
         totemModalTitle.textContent = totemId ? `Editar totem — ${totemId}` : 'Adicionar totem';
         totemSaveBtn.textContent = totemId ? 'Salvar' : 'Criar totem';
         totemIdInput.value = totemId || '';
-        totemVideoSelect.innerHTML = mediaOptions(videosCache, totem ? totem.video : (videosCache[0] || ''), '-- Nenhum --');
-        totemAudioSelect.innerHTML = mediaOptions(audiosCache, totem ? totem.audio : (audiosCache[0] || ''), '-- Nenhum --');
+        playlistRows.innerHTML = '';
+        const items = totem ? totem.playlist : [{ video: videosCache[0] || '', audio: audiosCache[0] || '' }];
+        (items.length ? items : [{ video: '', audio: '' }]).forEach(addPlaylistRow);
+        const schedule = (totem && totem.schedule) || {};
+        totemStart.value = toLocalInput(schedule.start);
+        totemEnd.value = toLocalInput(schedule.end);
+        const others = Object.keys(totemsById).filter(id => id !== totemId && totemsById[id].configured).sort();
+        totemFallback.innerHTML = '<option value="">Tela preta com o logo</option>' +
+            others.map(id => `<option value="${escapeHtml(id)}">A campanha ${escapeHtml(id)}</option>`).join('');
+        totemFallback.value = schedule.fallback && others.includes(schedule.fallback) ? schedule.fallback : '';
         showTotemError('');
         updateTotemUrlHint();
         totemModal.classList.remove('fade-out');
         totemIdInput.focus();
     }
+
+    // ── Playlist rows: video + its audio, reorderable ──
+    function addPlaylistRow(item = { video: '', audio: '' }) {
+        const li = document.createElement('li');
+        li.className = 'playlist-row';
+        li.innerHTML = `
+            <span class="row-num"></span>
+            <select class="custom-select pl-video" aria-label="Vídeo">${mediaOptions(videosCache, item.video, '-- Vídeo --')}</select>
+            <select class="custom-select pl-audio" aria-label="Áudio no celular">${mediaOptions(audiosCache, item.audio, '-- Sem áudio --')}</select>
+            <span class="row-actions">
+                <button type="button" class="icon-btn" data-move="-1" title="Subir" aria-label="Subir"><i data-lucide="arrow-up"></i></button>
+                <button type="button" class="icon-btn" data-move="1" title="Descer" aria-label="Descer"><i data-lucide="arrow-down"></i></button>
+                <button type="button" class="icon-btn danger" data-remove title="Tirar da lista" aria-label="Tirar da lista"><i data-lucide="x"></i></button>
+            </span>`;
+        li.querySelectorAll('[data-move]').forEach(btn => btn.addEventListener('click', () => {
+            const sibling = btn.dataset.move === '-1' ? li.previousElementSibling : li.nextElementSibling;
+            if (!sibling) return;
+            if (btn.dataset.move === '-1') playlistRows.insertBefore(li, sibling);
+            else playlistRows.insertBefore(sibling, li);
+            numberPlaylistRows();
+        }));
+        li.querySelector('[data-remove]').addEventListener('click', () => {
+            li.remove();
+            numberPlaylistRows();
+        });
+        playlistRows.appendChild(li);
+        numberPlaylistRows();
+        lucide.createIcons();
+    }
+
+    function numberPlaylistRows() {
+        const rows = [...playlistRows.children];
+        rows.forEach((li, i) => {
+            li.querySelector('.row-num').textContent = `${i + 1}.`;
+            li.querySelector('[data-move="-1"]').disabled = i === 0;
+            li.querySelector('[data-move="1"]').disabled = i === rows.length - 1;
+            li.querySelector('[data-remove]').disabled = rows.length === 1;
+        });
+    }
+
+    document.getElementById('addPlaylistRow').addEventListener('click', () => addPlaylistRow());
+
+    // <input type="datetime-local"> works in the browser's time zone; the server keeps UTC
+    function toLocalInput(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    const fromLocalInput = value => (value ? new Date(value).toISOString() : null);
 
     function closeTotemEditor() {
         totemModal.classList.add('fade-out');
@@ -326,13 +416,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     totemForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const rows = [...playlistRows.children].map(li => ({
+            video: li.querySelector('.pl-video').value,
+            audio: li.querySelector('.pl-audio').value,
+        }));
+        const start = fromLocalInput(totemStart.value);
+        const end = fromLocalInput(totemEnd.value);
+        const fallback = totemFallback.value || null;
         const payload = {
             id: totemIdInput.value.trim(),
-            video: totemVideoSelect.value,
-            audio: totemAudioSelect.value,
+            // A single empty row = no video yet
+            playlist: rows.length === 1 && !rows[0].video && !rows[0].audio ? [] : rows,
+            schedule: start || end || fallback ? { start, end, fallback } : null,
         };
         if (!/^[A-Za-z0-9_-]{1,40}$/.test(payload.id)) {
             return showTotemError('O ID deve ter de 1 a 40 letras, números, - ou _ (sem espaços).');
+        }
+        if (payload.playlist.some(i => !i.video)) {
+            return showTotemError('Escolha o vídeo de cada item da lista (ou tire o item).');
         }
 
         showTotemError('');
