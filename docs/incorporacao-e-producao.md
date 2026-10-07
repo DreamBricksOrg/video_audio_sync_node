@@ -49,6 +49,7 @@ O vídeo avisa o QR qual é a instância dele (canal do navegador, sem servidor)
 - [ ] Processo gerenciado (pm2, systemd ou o serviço da nuvem) para reiniciar em falhas.
 - [ ] Rodar `npm run load-test -- --url <servidor> --campaign <id> --screens <N> --phones <M>` contra um ambiente de teste com o volume esperado. Referência local: 100 telas + 200 celulares usaram ~55 MB de memória.
 - [ ] Mídia no S3 (abaixo), para os visitantes não baixarem os vídeos do servidor.
+- [ ] **Um `S3_PREFIX` por ambiente** (abaixo): produção e desenvolvimento nunca no mesmo prefixo.
 - [ ] `CORS_ORIGINS` vazio, a não ser que outro site precise ler `/media` direto.
 
 ## Mídia no S3
@@ -154,6 +155,22 @@ Reinicie o servidor. O console mostra `Media library: s3://MEU-BUCKET/audiosync/
 | Envio no admin falha com "Falha no S3" | Credenciais ou permissões de escrita do usuário IAM |
 
 Arquivos alterados fora do admin (console da AWS, `s3-sync`) aparecem na biblioteca em até 1 minuto. Armazenamentos compatíveis (MinIO, Cloudflare R2) funcionam com `S3_ENDPOINT`.
+
+### Campanhas no bucket e ambientes
+
+No modo S3, as campanhas (o antigo `totems.json`) ficam em `<prefixo>/totems.json` no bucket — **todos os servidores com o mesmo bucket + prefixo compartilham as mesmas campanhas e os mesmos arquivos**. Cada servidor confere mudanças a cada 15s (`CONFIG_REFRESH_MS`) e troca o vídeo das telas abertas quando outro servidor altera uma campanha. Gravações simultâneas não se sobrescrevem (gravação condicional por ETag).
+
+Por isso, **use um prefixo por ambiente**:
+
+| Ambiente | `.env` |
+|---|---|
+| Produção (AWS) | `S3_PREFIX=audiosync` |
+| Desenvolvimento | `S3_PREFIX=audiosync-dev` |
+
+- Na **primeira partida** com um prefixo novo, o servidor cria o `totems.json` do bucket a partir do `totems.json` local. Depois disso o arquivo local é ignorado.
+- O prefixo de desenvolvimento começa sem vídeos. Envie pelo admin, ou copie os de produção:
+  `aws s3 sync s3://MEU-BUCKET/audiosync s3://MEU-BUCKET/audiosync-dev --exclude totems.json`
+- Se o S3 estiver inacessível na partida, o servidor tenta 3 vezes e **não sobe** (para não rodar com campanhas vazias). Se o S3 cair com o servidor no ar, envios e alterações dão erro no admin e nada se perde.
 
 ### Opcional: CloudFront na frente
 
