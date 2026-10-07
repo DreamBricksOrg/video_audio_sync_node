@@ -40,6 +40,18 @@ Atualizado em 2026-10-07 (alta prioridade e média — menos 8 e 11 — concluí
 
 ---
 
+## Produção — pendente desde a atualização de 2026-10-07
+
+`git pull` e `npm ci` já rodaram no servidor. Falta:
+
+1. **Reiniciar o Node** (`pm2 restart videosync` ou `systemctl restart`): até reiniciar, o processo antigo continua rodando com os arquivos novos.
+2. **CORS do bucket**: adicionar a regra de PUT (só `https://videosync.dbpe.com.br` e `http://localhost:8001`) — ver `docs/incorporacao-e-producao.md`, seção 3. Sem ela o envio continua passando pelo servidor.
+3. **Login de novo** no admin (o formato do cookie mudou; acontece uma vez).
+4. **Testar num iPhone de verdade** uma campanha com 2+ vídeos (troca de áudio no celular) e o "Ouvir aqui" no totem.
+5. Conferir o painel **Estatísticas** no dia seguinte (os números aparecem a cada minuto).
+
+---
+
 ## Alta
 
 Nada pendente — os 6 itens de alta prioridade foram concluídos em 2026-10-07 (veja acima).
