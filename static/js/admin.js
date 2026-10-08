@@ -219,13 +219,51 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastTotems = [];
     const TOTEMS_PER_PAGE = 12;
 
+    // ── Search and filter of the campaign cards ──
+    const campaignSearch = document.getElementById('campaignSearch');
+    const campaignFilter = document.getElementById('campaignFilter');
+    // Lowercase without accents, so "promoção" matches "promocao"
+    const fold = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const CAMPAIGN_FILTERS = {
+        online: t => t.is_online,
+        offline: t => !t.is_online,
+        playlist: t => (t.playlist || []).length > 1,
+        scheduled: t => !!t.schedule,
+        'off-air': t => t.configured && t.showing !== t.id,
+        problem: t => (t.missing || []).length > 0,
+        unsaved: t => !t.configured,
+    };
+    function matchesCampaign(t) {
+        const filter = CAMPAIGN_FILTERS[campaignFilter.value];
+        if (filter && !filter(t)) return false;
+        const words = fold(campaignSearch.value).split(/\s+/).filter(Boolean);
+        if (!words.length) return true;
+        const text = fold([t.id, t.video, t.audio, ...(t.playlist || []).flatMap(i => [i.video, i.audio])].join(' '));
+        return words.every(w => text.includes(w));
+    }
+    function refilterCampaigns() {
+        currentPages.totems = 1;
+        totemsSignature = '';
+        renderTotems(lastTotems);
+    }
+    let searchTimer = null;
+    campaignSearch.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(refilterCampaigns, 150);
+    });
+    campaignFilter.addEventListener('change', refilterCampaigns);
+
     function renderTotems(totems) {
         totemsById = Object.fromEntries(totems.map(t => [t.id, t]));
         lastTotems = totems;
-        const page = pageOf('totems', totems, TOTEMS_PER_PAGE);
+        const shown = totems.filter(matchesCampaign);
+        const filtering = !!(campaignSearch.value.trim() || campaignFilter.value);
+        const page = pageOf('totems', shown, TOTEMS_PER_PAGE);
 
         const signature = JSON.stringify([
-            page.page,
+            page.page, campaignSearch.value, campaignFilter.value,
+            // Live status only matters for the card list when filtering by it
+            ['online', 'offline'].includes(campaignFilter.value) ? totems.map(t => t.is_online) : null,
             totems.map(t => [t.id, t.configured, t.video, t.audio, t.missing, t.playlist, t.schedule, t.showing]),
             videosCache, audiosCache,
         ]);
@@ -235,6 +273,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         totemsSignature = signature;
 
+        const n = totems.length;
+        document.getElementById('campaignCount').textContent = filtering
+            ? `${shown.length} de ${n} ${n === 1 ? 'campanha' : 'campanhas'}`
+            : `${n} ${n === 1 ? 'campanha' : 'campanhas'}`;
+
         totemGrid.innerHTML = '';
         renderPager('totems', page, () => {
             totemsSignature = '';
@@ -242,7 +285,17 @@ document.addEventListener('DOMContentLoaded', () => {
             totemGrid.scrollIntoView({ block: 'start' });
         });
         if (totems.length === 0) {
-            totemGrid.innerHTML = '<div class="empty-state">Nenhum totem cadastrado ainda. Clique em "Adicionar totem" para começar.</div>';
+            totemGrid.innerHTML = '<div class="empty-state">Nenhuma campanha cadastrada ainda. Clique em "Adicionar campanha" para começar.</div>';
+            return;
+        }
+        if (shown.length === 0) {
+            totemGrid.innerHTML = `<div class="empty-state">Nenhuma campanha encontrada com essa busca/filtro.
+                <button type="button" class="btn btn-ghost btn-sm" id="clearCampaignFilters">Limpar busca e filtro</button></div>`;
+            document.getElementById('clearCampaignFilters').addEventListener('click', () => {
+                campaignSearch.value = '';
+                campaignFilter.value = '';
+                refilterCampaigns();
+            });
             return;
         }
 
@@ -261,7 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="status-pill"><span class="dot"></span><span class="status-label"></span></div>
                         ${totem.configured ? `
                         <button type="button" class="icon-btn embed-btn" title="Incorporar em um site" aria-label="Incorporar ${id}"><i data-lucide="code"></i></button>
-                        <button type="button" class="icon-btn edit-btn" title="Editar totem" aria-label="Editar ${id}"><i data-lucide="pencil"></i></button>
+                        <button type="button" class="icon-btn edit-btn" title="Editar campanha" aria-label="Editar ${id}"><i data-lucide="pencil"></i></button>
                         <button type="button" class="icon-btn danger delete-btn" title="Excluir totem" aria-label="Excluir ${id}"><i data-lucide="trash-2"></i></button>
                         ` : ''}
                     </div>
@@ -380,7 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function deleteTotem(totemId) {
-        if (!confirm(`Excluir o totem "${totemId}"?\n\nO vídeo, o áudio e os links do celular configurados nele serão apagados.`)) return;
+        if (!confirm(`Excluir a campanha "${totemId}"?\n\nO vídeo, o áudio e os links do celular configurados nele serão apagados.`)) return;
         try {
             const res = await api(`/api/totem/${encodeURIComponent(totemId)}`, { method: 'DELETE' });
             const body = await res.json().catch(() => ({}));
@@ -424,8 +477,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function openTotemEditor(totemId = null) {
         editingTotemId = totemId;
         const totem = totemId ? totemsById[totemId] : null;
-        totemModalTitle.textContent = totemId ? `Editar totem — ${totemId}` : 'Adicionar totem';
-        totemSaveBtn.textContent = totemId ? 'Salvar' : 'Criar totem';
+        totemModalTitle.textContent = totemId ? `Editar campanha — ${totemId}` : 'Adicionar campanha';
+        totemSaveBtn.textContent = totemId ? 'Salvar' : 'Criar campanha';
         totemIdInput.value = totemId || '';
         playlistRows.innerHTML = '';
         const items = totem ? totem.playlist : [{ video: videosCache[0] || '', audio: audiosCache[0] || '' }];

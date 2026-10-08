@@ -626,3 +626,21 @@ html, body {
     .audit-scroll { max-height: none; }
     .stats-controls { width: 100%; }
 }
+
+/* ── Search and filter toolbar (campaigns) ── */
+.list-toolbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+    margin-bottom: var(--space-5);
+}
+.search-field { position: relative; flex: 1 1 280px; display: block; }
+.search-field svg {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; color: var(--text-tertiary); pointer-events: none;
+}
+.search-field .text-input { width: 100%; padding-left: 36px; }
+.list-toolbar .custom-select { flex: 0 1 240px; width: auto; }
+.list-count { font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; }
+.empty-state .btn { margin-top: var(--space-2); }
+@media (max-width: 640px) {
+    .list-toolbar .custom-select { flex: 1 1 100%; }
+}

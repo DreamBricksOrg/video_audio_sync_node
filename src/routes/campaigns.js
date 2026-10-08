@@ -156,7 +156,7 @@ function registerCampaignRoutes(app, { instances, mediaStore, library, campaigns
     let created;
     try {
       await mutateConfig(conf => {
-        if (conf[id]) throw new HttpError(409, `O totem "${id}" já existe`);
+        if (conf[id]) throw new HttpError(409, `A campanha "${id}" já existe`);
         created = applyCampaignFields({ video: "", audio: "" }, body, fields);
         conf[id] = created;
       });
@@ -183,8 +183,8 @@ function registerCampaignRoutes(app, { instances, mediaStore, library, campaigns
     let conf;
     try {
       conf = await mutateConfig(all => {
-        if (!all[oldId]) throw new HttpError(404, "Totem não encontrado");
-        if (newId !== oldId && all[newId]) throw new HttpError(409, `O totem "${newId}" já existe`);
+        if (!all[oldId]) throw new HttpError(404, "Campanha não encontrada");
+        if (newId !== oldId && all[newId]) throw new HttpError(409, `A campanha "${newId}" já existe`);
         const next = applyCampaignFields(all[oldId], body, fields);
         if (newId !== oldId) {
           delete all[oldId];
@@ -215,7 +215,7 @@ function registerCampaignRoutes(app, { instances, mediaStore, library, campaigns
     const { id } = req.params;
     try {
       await mutateConfig(conf => {
-        if (!conf[id]) throw new HttpError(404, "Totem não encontrado");
+        if (!conf[id]) throw new HttpError(404, "Campanha não encontrada");
         delete conf[id];
         // Campaigns falling back to it now show nothing outside their period
         for (const c of Object.values(conf)) {

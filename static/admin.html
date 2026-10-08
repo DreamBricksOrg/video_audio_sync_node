@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Central de Totens — DreamBricks</title>
+    <title>Central de Campanhas — DreamBricks</title>
     <link rel="stylesheet" href="/static/css/design-system/styles.css">
     <link rel="stylesheet" href="/static/css/admin.css">
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
@@ -48,12 +48,32 @@
         <div class="view" data-view="campanhas" role="tabpanel">
         <div class="page-header">
             <div>
-                <h1>Central de Totens</h1>
-                <p class="page-subtitle">Escolha o vídeo e o áudio de cada totem e abra o link do celular.</p>
+                <h1>Central de Campanhas</h1>
+                <p class="page-subtitle">Escolha os vídeos e áudios de cada campanha e abra o link do celular.</p>
             </div>
             <button id="addTotemBtn" class="btn btn-primary">
-                <i data-lucide="plus"></i> Adicionar totem
+                <i data-lucide="plus"></i> Adicionar campanha
             </button>
+        </div>
+
+        <!-- Search and filter: narrow the cards (the pager follows) -->
+        <div class="list-toolbar" role="search">
+            <label class="search-field">
+                <i data-lucide="search"></i>
+                <input type="search" id="campaignSearch" class="text-input" placeholder="Buscar por nome, vídeo ou áudio"
+                       aria-label="Buscar campanhas" autocomplete="off">
+            </label>
+            <select id="campaignFilter" class="custom-select" aria-label="Filtrar campanhas">
+                <option value="">Todas as campanhas</option>
+                <option value="online">Ao vivo agora</option>
+                <option value="offline">Desligadas</option>
+                <option value="playlist">Com vários vídeos</option>
+                <option value="scheduled">Com período no ar</option>
+                <option value="off-air">Fora do período agora</option>
+                <option value="problem">Com arquivo faltando</option>
+                <option value="unsaved">Ligadas, mas não salvas</option>
+            </select>
+            <span id="campaignCount" class="list-count" aria-live="polite"></span>
         </div>
 
         <main class="grid-container" id="totemGrid">
@@ -224,17 +244,17 @@
     <div id="totemModal" class="modal fade-out">
         <form id="totemForm" class="modal-content modal-form" role="dialog" aria-modal="true" aria-labelledby="totemModalTitle" novalidate>
             <button type="button" class="close-btn" data-close-totem aria-label="Fechar"><i data-lucide="x"></i></button>
-            <h2 id="totemModalTitle">Adicionar totem</h2>
+            <h2 id="totemModalTitle">Adicionar campanha</h2>
 
             <div class="form-group">
-                <label for="totemIdInput">ID do totem</label>
+                <label for="totemIdInput">ID da campanha</label>
                 <input id="totemIdInput" class="text-input" maxlength="40" autocomplete="off"
                        placeholder="ex.: shopping_paulista_1" pattern="[A-Za-z0-9_\-]{1,40}" required>
-                <p class="field-hint">Letras, números, - e _. A tela do totem deve abrir:</p>
+                <p class="field-hint">Letras, números, - e _. As telas da campanha abrem:</p>
                 <code id="totemUrlHint" class="url-hint"></code>
                 <p id="totemRenameWarning" class="field-warning" hidden>
-                    Renomear muda este endereço. Um totem ligado agora recarrega sozinho com o novo ID;
-                    um totem desligado precisa ser aberto no endereço novo.
+                    Renomear muda este endereço. Uma tela aberta agora recarrega sozinha com o novo ID;
+                    uma tela fechada precisa ser aberta no endereço novo.
                 </p>
             </div>
 
@@ -270,7 +290,7 @@
             <div class="modal-actions">
                 <span class="spacer"></span>
                 <button type="button" class="btn btn-secondary" data-close-totem>Cancelar</button>
-                <button type="submit" class="btn btn-primary" id="totemSaveBtn">Criar totem</button>
+                <button type="submit" class="btn btn-primary" id="totemSaveBtn">Criar campanha</button>
             </div>
         </form>
     </div>
