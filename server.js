@@ -751,8 +751,6 @@ function receiveUpload(req, res, targetName, status) {
   });
 }
 
-app.get("/api/videos", (req, res) => res.json(listMedia("video")));
-app.get("/api/audios", (req, res) => res.json(listMedia("audio")));
 
 // List: GET /api/media
 app.get("/api/media", (req, res) => {
