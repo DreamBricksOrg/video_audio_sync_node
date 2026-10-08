@@ -121,6 +121,12 @@ Decisões que importam:
 
 ## 6. Mudanças no servidor (`server.js`)
 
+> Desde 2026-10-08 o `server.js` só liga as peças; o código está em `src/`:
+> `settings.js` (.env), `campaigns.js` (config compartilhada, conteúdo no ar, envio às telas),
+> `auth.js` (login e sessões), `stats-service.js`, `media-library.js`, `routes/` (public, media,
+> campaigns) e `realtime.js` (WebSockets). As referências abaixo a "`server.js`" valem para esses módulos.
+
+
 **WebSocket**
 - Um único `upgrade` com regex `/^\/ws\/(screen|mobile|drift)\/([^/]+)$/` lendo `instance` da query e o IP do cliente.
 - `handleScreen` / `handleMobile` / `handleDrift` passam a trabalhar sobre a instância (`instances.register` / `instances.resolve`).
