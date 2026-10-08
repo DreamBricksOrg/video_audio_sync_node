@@ -195,6 +195,7 @@ Monitor gratuito com o [UptimeRobot](https://uptimerobot.com): *Add New Monitor*
 1. Crie uma conta gratuita em [sentry.io](https://sentry.io) e um projeto **Node.js / Express**.
 2. Copie o DSN (Settings → Client Keys) para o `.env` do servidor: `SENTRY_DSN=https://...@....ingest.sentry.io/...`
 3. Reinicie. O console mostra `🚨 Error alerts: Sentry on`.
+4. Confira com `npm run sentry-test`: envia um erro de teste e mostra se o Sentry recebeu (`✅ Recebido pelo Sentry (HTTP 200)`). O evento aparece no projeto como "Sentry test from <nome da máquina>". Em **Alerts**, crie uma regra para receber um e-mail a cada erro novo.
 
 Vão para o Sentry: erros registrados pelo servidor (falha no S3, upload, separador…), erros de rota e travamentos. Uma falha que se repete (ex.: S3 fora do ar, conferido a cada 15s) gera **um** alerta, não um por tentativa. Nenhum dado pessoal é enviado. `SENTRY_ENVIRONMENT` separa produção de testes (padrão: o `S3_PREFIX`).
 
