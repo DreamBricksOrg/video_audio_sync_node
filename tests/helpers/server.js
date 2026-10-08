@@ -67,6 +67,7 @@ async function startServer({ totems = {}, env = {}, media = [], files = {} } = {
   }
 
   return {
+    pid: proc.pid,
     base,
     wsBase: `ws://localhost:${port}`,
     totemsFile,

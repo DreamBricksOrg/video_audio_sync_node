@@ -208,6 +208,23 @@ Com `LOG_FORMAT=json` cada linha vira um JSON (`time`, `level`, `scope`, `msg` e
 
 `npm run load-test -- --url https://videosync.dbpe.com.br --campaign <id> --screens 50` **fora do horário de uso** (as telas falsas aparecem no admin).
 
+### Capacidade (teste de carga local, 2026-10-08)
+
+`npm run load-bench` sobe um servidor de teste descartável e mede (um processo Node, cliente na mesma máquina):
+
+| Telas | Celulares ouvindo | Falhas | Memória | CPU (1 núcleo) | `/health` p95 |
+|---|---|---|---|---|---|
+| 200 | 200 | 0 | 73 MB | 4% | 2,8 ms |
+| 500 | 1.000 | 0 | 121 MB | 12% | 1,9 ms |
+| 1.000 | 2.000 | 0 | 148 MB | 18% | 2,6 ms |
+| 2.000 | 4.000 | 0 | 161 MB | 32% | 3,0 ms |
+
+Com 8.000 celulares as falhas vieram do **cliente** (Windows tem 16.384 portas de saída; o teste precisa de ~18.000), não do servidor, que seguiu respondendo em ~2 ms.
+
+**Conclusão:** um processo dá conta de milhares de telas e celulares; **Redis não é necessário**. Ele só entra se um dia for preciso rodar vários processos Node dividindo as telas.
+
+⚠️ **Não use o modo cluster do pm2** (`-i` / `instances`): as telas e os celulares de uma mesma instância precisam cair no mesmo processo (a sincronia fica em memória). Campanhas, sessões, usuários e estatísticas já são compartilhados pelo bucket — vários **servidores** com o mesmo bucket funcionam, desde que cada QR leve ao servidor da tela.
+
 ## 7b. Usuários do admin
 
 - A conta do `.env` (`ADMIN_USER` / `ADMIN_PASSWORD`) é a **conta principal**: papel Admin, não aparece para edição no admin e serve para entrar se todas as outras se perderem.

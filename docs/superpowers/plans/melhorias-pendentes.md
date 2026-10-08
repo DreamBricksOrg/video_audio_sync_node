@@ -50,6 +50,8 @@ Atualizado em 2026-10-07 (alta prioridade e média — menos 8 e 11 — concluí
 4. **Testar num iPhone de verdade** uma campanha com 2+ vídeos (troca de áudio no celular) e o "Ouvir aqui" no totem.
 5. Conferir o painel **Estatísticas** no dia seguinte (os números aparecem a cada minuto).
 
+**Atualização de 2026-10-08 (prioridade baixa):** `git pull && npm ci --omit=dev` (pacote novo: `@sentry/node`) e reiniciar. Opcionais no `.env`: `SENTRY_DSN` e `LOG_FORMAT=json`. Depois: criar os usuários Editor/Admin na seção **Usuários** do admin e configurar o UptimeRobot no `/health` (`docs/operacao-aws.md`, seção 7). **Não** usar o modo cluster do pm2.
+
 ---
 
 ## Alta
@@ -72,11 +74,13 @@ Para conexões lentas; o separador geraria as variantes. Exige trocar o `<video>
 
 ## Baixa — código e manutenção
 
-16. Dividir o `server.js` (~1.500 linhas) em módulos: auth, mídia, totens, estatísticas, WebSocket.
-18. Remover rotas antigas `/api/videos` e `/api/audios` (substituídas por `/api/media`).
-19. Logs estruturados, alerta de erros (Sentry ou similar) e monitor de disponibilidade no `/health`.
-20. Vários usuários no admin, com permissões e registro de quem fez o quê.
-21. Redis para várias instâncias do servidor — só se o teste de carga mostrar necessidade.
+Concluída em 2026-10-08:
+
+- **16.** `server.js` dividido em módulos (`src/`: settings, campaigns, auth, users, audit, stats, media, routes, realtime, log, sentry).
+- **18.** Rotas antigas `/api/videos` e `/api/audios` removidas.
+- **19.** Logs estruturados (`LOG_FORMAT=json`), alertas no Sentry (opcional, `SENTRY_DSN`), `/health` com `checks` e 503 quando degradado; guia do UptimeRobot.
+- **20.** Vários usuários no admin (Admin / Editor) e registro de atividades.
+- **21.** Teste de carga (`npm run load-bench`): um processo aguenta 2.000 telas + 4.000 celulares com folga — **Redis não é necessário**. Números em `docs/operacao-aws.md`.
 
 
 ## Fora do escopo (decidido não implementar)

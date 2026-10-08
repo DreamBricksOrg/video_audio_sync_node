@@ -10,7 +10,8 @@
     "test": "node --test \"tests/**/*.test.js\"",
     "load-test": "node scripts/load-test.js",
     "s3-sync": "node scripts/s3-sync.js",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "load-bench": "node scripts/load-bench.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
