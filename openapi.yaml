@@ -80,6 +80,76 @@ paths:
         '502':
           description: The session could not be removed from the storage
 
+  /api/session:
+    get:
+      summary: Who Is Logged In
+      responses:
+        "200":
+          description: "`{ user, role: admin|editor, main }` — `main` = the .env account"
+
+  /api/users:
+    get:
+      summary: List Admin Users (Admin role)
+      description: The .env account (main admin, edited only in .env) plus the users created in the admin. Never returns password hashes.
+      responses:
+        "200":
+          description: "`[{ name, role, main, created, updated }]`"
+        "403":
+          description: Editor role
+    post:
+      summary: Create a User (Admin role)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, password, role]
+              properties:
+                name: { type: string, description: "2–40 letters, numbers, ., - or _" }
+                password: { type: string, description: "At least 8 characters (stored as a scrypt hash)" }
+                role: { type: string, enum: [admin, editor] }
+      responses:
+        "201": { description: Created }
+        "400": { description: Invalid name, password or role }
+        "409": { description: Name already exists }
+
+  /api/users/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    patch:
+      summary: Change Role or Password (Admin role)
+      description: A new password ends the user's open sessions; a new role applies at once.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { type: string, enum: [admin, editor] }
+                password: { type: string }
+      responses:
+        "200": { description: Updated }
+        "400": { description: The .env account, or invalid values }
+        "404": { description: Not found }
+    delete:
+      summary: Delete a User (Admin role)
+      description: Ends the user's sessions. Not the .env account, not yourself.
+      responses:
+        "200": { description: Deleted }
+        "400": { description: The .env account or yourself }
+        "404": { description: Not found }
+
+  /api/audit:
+    get:
+      summary: Activity Log (Admin role)
+      description: Who did what in the admin, newest first (this month and the previous one). Kept 12 months.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 300, maximum: 1000 } }
+      responses:
+        "200":
+          description: "`{ entries: [{ time, user, action, target }] }`"
+
   /api/sessions:
     get:
       summary: Logged-in Browsers

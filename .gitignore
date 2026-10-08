@@ -43,3 +43,7 @@ stats/
 # Campaigns config (usage data): copy totems.example.json to start in local mode.
 # In S3 mode the campaigns live in the bucket (<prefix>/totems.json).
 totems.json
+
+# Usuários do admin e registro de atividades (modo local)
+users.json
+audit/

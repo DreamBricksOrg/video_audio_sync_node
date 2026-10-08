@@ -15,7 +15,7 @@ describe("local mode", () => {
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.status, "ok");
-    assert.deepEqual(body.checks, { media: { ok: true }, config: { ok: true }, sessions: { ok: true } });
+    assert.deepEqual(body.checks, { media: { ok: true }, config: { ok: true }, sessions: { ok: true }, users: { ok: true } });
     assert.match(body.version, /^\d+\.\d+\.\d+/);
     assert.ok(body.started_at);
   });

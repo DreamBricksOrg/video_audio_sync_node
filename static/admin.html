@@ -85,6 +85,47 @@
             </table>
         </section>
 
+        <section class="media-section admin-only" id="usersSection" hidden>
+            <div class="section-header">
+                <div>
+                    <h2>Usuários</h2>
+                    <p class="page-subtitle">Admin pode tudo. Editor cuida de campanhas, mídia, links e estatísticas, mas não de usuários nem do registro de atividades.</p>
+                </div>
+            </div>
+
+            <form id="userForm" class="user-form" autocomplete="off">
+                <input id="newUserName" class="text-input" placeholder="Nome de usuário" aria-label="Nome de usuário" maxlength="40" required>
+                <input id="newUserPassword" class="text-input" type="password" placeholder="Senha (mín. 8)" aria-label="Senha" minlength="8" autocomplete="new-password" required>
+                <select id="newUserRole" class="custom-select" aria-label="Papel">
+                    <option value="editor">Editor</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <button type="submit" class="btn btn-primary"><i data-lucide="user-plus"></i> Adicionar</button>
+            </form>
+            <p id="userError" class="form-error" role="alert" hidden></p>
+
+            <table class="stats-sites users-table">
+                <thead><tr><th>Usuário</th><th>Papel</th><th></th></tr></thead>
+                <tbody id="usersList"></tbody>
+            </table>
+        </section>
+
+        <section class="media-section admin-only" id="auditSection" hidden>
+            <div class="section-header">
+                <div>
+                    <h2>Registro de atividades</h2>
+                    <p class="page-subtitle">Quem fez o quê no admin (este mês e o anterior). Guardado por 12 meses.</p>
+                </div>
+                <button type="button" class="btn btn-secondary" id="auditRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            </div>
+            <div class="audit-scroll">
+                <table class="stats-sites audit-table">
+                    <thead><tr><th>Quando</th><th>Usuário</th><th>O quê</th><th>Item</th></tr></thead>
+                    <tbody id="auditList"></tbody>
+                </table>
+            </div>
+        </section>
+
         <section class="media-section">
             <div class="section-header">
                 <div>

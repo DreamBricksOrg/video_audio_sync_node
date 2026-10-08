@@ -519,3 +519,13 @@ html, body {
     .schedule-grid { grid-template-columns: 1fr; }
 }
 .card-fields > .form-label { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }
+
+/* ── Users & activity log ── */
+.user-form { display: grid; grid-template-columns: 1fr 1fr 140px auto; gap: var(--space-2); margin-bottom: var(--space-3); }
+.users-table td { vertical-align: middle; }
+.users-table .custom-select { max-width: 160px; height: 34px; }
+.users-table .row-actions { display: flex; gap: var(--space-1); justify-content: flex-end; align-items: center; }
+.audit-scroll { max-height: 420px; overflow-y: auto; border-bottom: 1px solid var(--border-subtle); }
+.audit-table td:last-child, .audit-table th:last-child { text-align: left; }
+.audit-table td:first-child { white-space: nowrap; color: var(--text-secondary); }
+@media (max-width: 640px) { .user-form { grid-template-columns: 1fr; } }

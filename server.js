@@ -29,6 +29,9 @@ const { createS3Storage } = require("./lib/s3-storage");
 const { createLocalStore, createS3Store } = require("./lib/media-store");
 const { createCampaigns } = require("./src/campaigns");
 const { createAuth } = require("./src/auth");
+const { createUsers } = require("./src/users");
+const { createAudit } = require("./src/audit");
+const { registerUserRoutes } = require("./src/routes/users");
 const { createStatsService } = require("./src/stats-service");
 const { createMediaLibrary } = require("./src/media-library");
 const { cors } = require("./src/cors");
@@ -76,7 +79,9 @@ const instances = createInstanceRegistry();
 setInterval(() => instances.sweep(), 30000).unref();
 
 const campaigns = createCampaigns({ storage, instances, mediaUrl });
-const auth = createAuth({ storage });
+const users = createUsers({ storage });
+const audit = createAudit({ storage, timeZone: process.env.STATS_TIMEZONE || "America/Sao_Paulo" });
+const auth = createAuth({ storage, users, audit });
 const statsService = createStatsService({ storage, campaigns });
 const library = createMediaLibrary({ mediaStore, campaigns });
 
@@ -89,6 +94,8 @@ app.use(bodyParser.json());
 
 registerQrPage(app);
 auth.register(app); // from here on, /api and /api-docs need the admin login
+app.use("/api", audit.middleware); // records every successful change: who did what
+registerUserRoutes(app, { users, audit, requireAdmin: auth.requireAdmin });
 statsService.register(app, { storageErrorMessage: library.storageErrorMessage });
 
 const swaggerDocument = YAML.parse(fs.readFileSync(path.join(__dirname, "openapi.yaml"), "utf8"));
@@ -99,7 +106,7 @@ registerMediaRoutes(app, { storage, mediaStore, library, campaigns });
 registerCampaignRoutes(app, { instances, mediaStore, library, campaigns });
 registerPublicRoutes(app, {
   instances, mediaStore, mediaUrl, version: VERSION,
-  checks: { media: () => mediaStore.status(), config: campaigns.status, sessions: auth.status },
+  checks: { media: () => mediaStore.status(), config: campaigns.status, sessions: auth.status, users: users.status },
 });
 sentryErrorHandler(app);
 
@@ -131,6 +138,7 @@ Promise.all([
   mediaStore.init(),
   loadWithRetry(campaigns.load),
   loadWithRetry(auth.load),
+  loadWithRetry(users.load),
 ]).catch(err => {
   log.error("Server", `Could not load the campaigns config / admin sessions (${campaigns.configStore.describe()}):`, err);
   flushSentry().finally(() => process.exit(1));
@@ -151,11 +159,12 @@ Promise.all([
     say("info", `  🗂️  Campaigns config: ${campaigns.configStore.describe()} (${Object.keys(campaigns.conf).length} campaigns, shared by every server on this bucket/prefix)\n`);
     setInterval(campaigns.refreshConfig, CONFIG_REFRESH_MS).unref();
     setInterval(auth.refreshSessions, CONFIG_REFRESH_MS).unref();
+    setInterval(users.refresh, CONFIG_REFRESH_MS).unref();
   } else {
     say("info", `  📁 Media library: ${mediaStore.describe()} (${mediaStore.list().length} files)\n`);
   }
   if (!settings.ADMIN_USER || !settings.ADMIN_PASSWORD) {
-    say("warn", "  ⚠️  ADMIN_USER / ADMIN_PASSWORD not set in .env — admin login is disabled\n");
+    say("warn", "  ⚠️  ADMIN_USER / ADMIN_PASSWORD not set in .env — only users created in the admin can log in\n");
   }
   if (sentryOn) say("info", "  🚨 Error alerts: Sentry on (SENTRY_DSN)\n");
   if (!settings.SESSION_SECRET_SET) {

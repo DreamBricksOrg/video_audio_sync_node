@@ -208,6 +208,13 @@ Com `LOG_FORMAT=json` cada linha vira um JSON (`time`, `level`, `scope`, `msg` e
 
 `npm run load-test -- --url https://videosync.dbpe.com.br --campaign <id> --screens 50` **fora do horário de uso** (as telas falsas aparecem no admin).
 
+## 7b. Usuários do admin
+
+- A conta do `.env` (`ADMIN_USER` / `ADMIN_PASSWORD`) é a **conta principal**: papel Admin, não aparece para edição no admin e serve para entrar se todas as outras se perderem.
+- Na seção **Usuários** do admin, um Admin cria pessoas com papel **Admin** (tudo) ou **Editor** (campanhas, mídia, links e estatísticas). Trocar a senha ou excluir encerra as sessões abertas da pessoa; trocar o papel vale na hora.
+- Os usuários ficam em `<prefixo>/users.json` no bucket (senhas com hash scrypt) e valem em todos os servidores do mesmo bucket/prefixo.
+- **Registro de atividades** (só Admin): quem entrou, saiu, enviou/renomeou/excluiu arquivos, criou/editou/excluiu campanhas e usuários. Um arquivo por mês em `<prefixo>/audit/`, guardado por 12 meses.
+
 ## 8. Backup
 
 - Vídeos, áudios e campanhas estão no S3. Para proteger contra exclusão acidental, ative **Versioning** no bucket com uma regra de ciclo de vida apagando versões antigas depois de 30 dias.

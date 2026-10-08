@@ -54,13 +54,22 @@ document.addEventListener('DOMContentLoaded', () => {
         setInterval(loadStats, 60000);
     }
 
+    // Who is logged in; Admin-only parts (users, activity log, other sessions)
+    // stay hidden for editors — the server refuses them anyway
+    let currentUser = { user: '', role: '' };
     async function loadSession() {
         try {
             const res = await api('/api/session');
-            const { user } = await res.json();
-            document.getElementById('currentUser').textContent = user;
+            currentUser = await res.json();
+            document.getElementById('currentUser').textContent =
+                `${currentUser.user} · ${currentUser.role === 'admin' ? 'Admin' : 'Editor'}`;
         } catch (_) {}
+        const isAdmin = currentUser.role === 'admin';
+        document.querySelectorAll('.admin-only').forEach(el => { el.hidden = !isAdmin; });
+        if (!isAdmin) return;
         loadSessionCount();
+        loadUsers();
+        loadAudit();
     }
 
     // "Desconectar outros aparelhos" only shows when another browser is logged in
@@ -1250,6 +1259,123 @@ document.addEventListener('DOMContentLoaded', () => {
     }));
     statsCampaign.addEventListener('change', renderStats);
     statsDays.addEventListener('change', loadStats);
+
+    // ── Users and activity log (Admin role only) ──
+    const usersList = document.getElementById('usersList');
+    const userError = document.getElementById('userError');
+    const ROLE_LABELS = { admin: 'Admin', editor: 'Editor' };
+
+    function showUserError(msg) {
+        userError.textContent = msg;
+        userError.hidden = !msg;
+    }
+
+    async function usersApi(method, url, body) {
+        const res = await api(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+        return data;
+    }
+
+    async function loadUsers() {
+        try {
+            const list = await usersApi('GET', '/api/users');
+            usersList.innerHTML = list.map(u => `
+                <tr data-name="${escapeHtml(u.name)}">
+                    <td>${escapeHtml(u.name)}${u.name === currentUser.user ? ' <span class="field-hint">(você)</span>' : ''}</td>
+                    <td>${u.main
+                        ? '<span class="field-hint">Admin — conta principal (.env)</span>'
+                        : `<select class="custom-select user-role" aria-label="Papel de ${escapeHtml(u.name)}">
+                               ${Object.entries(ROLE_LABELS).map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}
+                           </select>`}</td>
+                    <td><div class="row-actions">${u.main ? '' : `
+                        <button type="button" class="btn btn-ghost btn-sm user-password"><i data-lucide="key-round"></i> Nova senha</button>
+                        <button type="button" class="icon-btn danger user-delete" title="Excluir" aria-label="Excluir ${escapeHtml(u.name)}"><i data-lucide="trash-2"></i></button>`}</div>
+                    </td>
+                </tr>`).join('');
+            lucide.createIcons();
+        } catch (e) {
+            showUserError(`Não foi possível carregar os usuários: ${e.message}`);
+        }
+    }
+
+    usersList.addEventListener('change', async e => {
+        if (!e.target.classList.contains('user-role')) return;
+        const name = e.target.closest('tr').dataset.name;
+        try {
+            await usersApi('PATCH', `/api/users/${encodeURIComponent(name)}`, { role: e.target.value });
+            showUserError('');
+            loadAudit();
+        } catch (err) {
+            showUserError(err.message);
+            loadUsers();
+        }
+    });
+
+    usersList.addEventListener('click', async e => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const name = btn.closest('tr').dataset.name;
+        try {
+            if (btn.classList.contains('user-password')) {
+                const password = prompt(`Nova senha para "${name}" (mínimo 8 caracteres).\nAs sessões abertas dessa pessoa serão encerradas.`);
+                if (!password) return;
+                await usersApi('PATCH', `/api/users/${encodeURIComponent(name)}`, { password });
+                alert(`Senha de "${name}" trocada.`);
+            } else if (btn.classList.contains('user-delete')) {
+                if (!confirm(`Excluir o usuário "${name}"? As sessões abertas dessa pessoa serão encerradas.`)) return;
+                await usersApi('DELETE', `/api/users/${encodeURIComponent(name)}`);
+            } else {
+                return;
+            }
+            showUserError('');
+            loadUsers();
+            loadAudit();
+        } catch (err) {
+            showUserError(err.message);
+        }
+    });
+
+    document.getElementById('userForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        const name = document.getElementById('newUserName');
+        const password = document.getElementById('newUserPassword');
+        try {
+            await usersApi('POST', '/api/users', {
+                name: name.value.trim(), password: password.value, role: document.getElementById('newUserRole').value,
+            });
+            name.value = '';
+            password.value = '';
+            showUserError('');
+            loadUsers();
+            loadAudit();
+        } catch (err) {
+            showUserError(err.message);
+        }
+    });
+
+    async function loadAudit() {
+        if (currentUser.role !== 'admin') return;
+        const list = document.getElementById('auditList');
+        try {
+            const { entries } = await usersApi('GET', '/api/audit');
+            list.innerHTML = entries.length
+                ? entries.map(e => `<tr>
+                    <td>${new Date(e.time).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                    <td>${escapeHtml(e.user)}</td>
+                    <td>${escapeHtml(e.action)}</td>
+                    <td>${escapeHtml(e.target || '')}</td>
+                </tr>`).join('')
+                : '<tr><td colspan="4" class="empty">Nenhuma atividade registrada ainda.</td></tr>';
+        } catch (err) {
+            list.innerHTML = `<tr><td colspan="4" class="empty">Não foi possível carregar: ${escapeHtml(err.message)}</td></tr>`;
+        }
+    }
+    document.getElementById('auditRefresh').addEventListener('click', loadAudit);
 
     init();
 });

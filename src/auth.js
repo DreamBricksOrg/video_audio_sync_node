@@ -1,24 +1,25 @@
 /**
  * Admin login: sessions in sessions.json (next to totems.json, or in the bucket
- * in S3 mode), the login/logout routes and the requireAuth middleware.
+ * in S3 mode), the login/logout routes and the requireAuth / requireAdmin
+ * middlewares. Who can log in: src/users.js.
  */
 const crypto = require("crypto");
 const path = require("path");
 const {
-  ADMIN_USER, ADMIN_PASSWORD, SESSION_SECRET, SESSION_COOKIE, LOGIN_MAX_FAILURES, LOGIN_LOCK_MS,
-  TOTEMS_FILE, STATIC_DIR,
+  ADMIN_USER, SESSION_COOKIE, LOGIN_MAX_FAILURES, LOGIN_LOCK_MS, TOTEMS_FILE, STATIC_DIR,
 } = require("./settings");
 const { createFileConfigStore, createS3ConfigStore, isConfigConflict } = require("../lib/config-store");
 const { createSyncedDoc } = require("../lib/synced-doc");
 const { log } = require("./log");
 
-function createAuth({ storage }) {
+function createAuth({ storage, users, audit }) {
   // The cookie holds a random session id. Sessions live in sessions.json (next to
   // totems.json, or in the bucket next to the config in S3 mode, so every server
   // shares them), keyed by a hash of the id: reading the file doesn't give
   // anyone a usable cookie. Logout deletes the session, so a copied cookie stops
-  // working. Each session records a tag of the credentials, so changing
-  // ADMIN_PASSWORD (or SESSION_SECRET) still logs everyone out.
+  // working. Each session records its user and a tag of the user's password, so
+  // a new password (or SESSION_SECRET) ends that user's sessions, and deleting
+  // the user ends them all. The role is read live: changing it applies at once.
   const SESSIONS_NAME = "sessions.json";
   const MAX_SESSIONS = 100;
   const SESSION_ID_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -28,11 +29,6 @@ function createAuth({ storage }) {
     : createFileConfigStore({ file: process.env.SESSIONS_FILE || path.join(path.dirname(TOTEMS_FILE), SESSIONS_NAME) });
   const sessionsDoc = createSyncedDoc({ store: sessionStore, isConflict: isConfigConflict });
 
-  function sign(value) {
-    return crypto.createHmac("sha256", SESSION_SECRET).update(value).digest("base64url");
-  }
-
-  const credentialsTag = () => sign(`${ADMIN_USER}:${ADMIN_PASSWORD}`).slice(0, 22);
   const sessionKey = id => crypto.createHash("sha256").update(id).digest("base64url");
 
   // Only the first failure in a row is an error (→ Sentry); repeats are warnings
@@ -60,7 +56,7 @@ function createAuth({ storage }) {
       pendingRefresh = new Promise(r => setTimeout(r, wait))
         .then(() => {
           lastForcedRefresh = Date.now();
-          return refreshSessions();
+          return Promise.all([refreshSessions(), users.refresh()]);
         })
         .finally(() => { pendingRefresh = null; });
     }
@@ -82,19 +78,27 @@ function createAuth({ storage }) {
     return null;
   }
 
-  // The session's key when the request carries a valid session, else null
+  // The user of a stored session, if it's still valid (user exists, same password)
+  function sessionUser(s) {
+    if (!s) return null;
+    const user = users.find(s.user || ADMIN_USER); // sessions from before users = the .env account
+    return user && safeEqual(s.auth, user.tag) ? user : null;
+  }
+
+  // { key, user } when the request carries a valid session, else null
   async function currentSession(req) {
-    if (!ADMIN_USER || !ADMIN_PASSWORD) return null;
+    if (!users.any()) return null;
     const id = getCookie(req, SESSION_COOKIE);
     if (!id || !SESSION_ID_RE.test(id)) return null;
     const key = sessionKey(id);
     const valid = () => {
-      const s = sessionsDoc.get()[key];
-      return !!s && safeEqual(s.auth, credentialsTag());
+      const user = sessionUser(sessionsDoc.get()[key]);
+      return user ? { key, user } : null;
     };
-    if (valid()) return key;
+    const found = valid();
+    if (found) return found;
     await refreshSessionsForUnknown();
-    return valid() ? key : null;
+    return valid();
   }
 
   function isHttps(req) {
@@ -111,14 +115,21 @@ function createAuth({ storage }) {
   }
 
   function requireAuth(req, res, next) {
-    currentSession(req).then(key => {
-      if (key) {
-        req.sessionKey = key;
+    currentSession(req).then(session => {
+      if (session) {
+        req.sessionKey = session.key;
+        req.user = { name: session.user.name, role: session.user.role, main: session.user.main };
         return next();
       }
       if (req.originalUrl.startsWith("/api/")) return res.status(401).json({ error: "Não autenticado" });
       res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
     }, next);
+  }
+
+  // After requireAuth: only the Admin role (users, activity log, other sessions)
+  function requireAdmin(req, res, next) {
+    if (req.user && req.user.role === "admin") return next();
+    res.status(403).json({ error: "Só administradores podem fazer isso" });
   }
 
   // Brute-force guard: lock an IP for a minute after repeated failures
@@ -133,7 +144,7 @@ function createAuth({ storage }) {
     });
 
     app.post("/api/login", async (req, res) => {
-      if (!ADMIN_USER || !ADMIN_PASSWORD) {
+      if (!users.any()) {
         return res.status(503).json({ error: "Login não configurado (defina ADMIN_USER e ADMIN_PASSWORD no .env)" });
       }
 
@@ -145,10 +156,8 @@ function createAuth({ storage }) {
       }
 
       const { username, password } = req.body || {};
-      // Compare both (no short-circuit) so timing doesn't reveal which one was wrong
-      const userOk = safeEqual(username || "", ADMIN_USER);
-      const passOk = safeEqual(password || "", ADMIN_PASSWORD);
-      if (!userOk || !passOk) {
+      const user = await users.verify(String(username || ""), String(password || ""));
+      if (!user) {
         // An expired lock starts a fresh count
         const count = entry && !entry.lockedUntil ? entry.count + 1 : 1;
         loginFailures.set(ip, { count, lockedUntil: count >= LOGIN_MAX_FAILURES ? Date.now() + LOGIN_LOCK_MS : 0 });
@@ -160,7 +169,7 @@ function createAuth({ storage }) {
       const id = crypto.randomBytes(32).toString("base64url");
       try {
         await sessionsDoc.mutate(all => {
-          all[sessionKey(id)] = { created: new Date().toISOString(), auth: credentialsTag() };
+          all[sessionKey(id)] = { created: new Date().toISOString(), user: user.name, auth: user.tag };
           // Keep the newest MAX_SESSIONS (old forgotten browsers drop off)
           const keys = Object.keys(all).sort((a, b) => String(all[b].created).localeCompare(String(all[a].created)));
           keys.slice(MAX_SESSIONS).forEach(k => delete all[k]);
@@ -171,15 +180,19 @@ function createAuth({ storage }) {
       }
       // ~10 years: the session only ends on logout
       setSessionCookie(req, res, id, 10 * 365 * 24 * 3600);
-      log.info("Auth", `${ADMIN_USER} logged in from ${ip}`);
-      res.json({ success: true, user: ADMIN_USER });
+      log.info("Auth", `${user.name} logged in from ${ip}`);
+      audit.record(user.name, "Entrou");
+      res.json({ success: true, user: user.name, role: user.role });
     });
 
     app.post("/api/logout", async (req, res) => {
       setSessionCookie(req, res, "", 0);
-      const key = await currentSession(req);
+      const session = await currentSession(req);
       try {
-        if (key) await sessionsDoc.mutate(all => { delete all[key]; });
+        if (session) {
+          await sessionsDoc.mutate(all => { delete all[session.key]; });
+          audit.record(session.user.name, "Saiu");
+        }
       } catch (err) {
         log.error("Auth", "Could not end the session:", err);
         return res.status(502).json({ error: "Não foi possível encerrar a sessão no servidor. Tente de novo." });
@@ -195,16 +208,15 @@ function createAuth({ storage }) {
     app.use("/api", requireAuth);
     app.use("/api-docs", requireAuth);
 
-    app.get("/api/session", (req, res) => res.json({ user: ADMIN_USER }));
+    app.get("/api/session", (req, res) => res.json({ user: req.user.name, role: req.user.role, main: req.user.main }));
 
-    // How many browsers are logged in
+    // How many browsers are logged in (all users)
     app.get("/api/sessions", (req, res) => {
-      const tag = credentialsTag();
-      res.json({ count: Object.values(sessionsDoc.get()).filter(s => s.auth === tag).length });
+      res.json({ count: Object.values(sessionsDoc.get()).filter(s => sessionUser(s)).length });
     });
 
-    // "Desconectar outros aparelhos": end every session except this one
-    app.post("/api/sessions/revoke-others", async (req, res) => {
+    // "Desconectar outros aparelhos" (admins): end every session except this one
+    app.post("/api/sessions/revoke-others", requireAdmin, async (req, res) => {
       try {
         const revoked = await sessionsDoc.mutate(all => {
           const others = Object.keys(all).filter(k => k !== req.sessionKey);
@@ -220,7 +232,7 @@ function createAuth({ storage }) {
     });
   }
 
-  return { register, requireAuth, currentSession, refreshSessions, status, load: () => sessionsDoc.load() };
+  return { register, requireAuth, requireAdmin, currentSession, refreshSessions, status, load: () => sessionsDoc.load() };
 }
 
 module.exports = { createAuth };
