@@ -10,8 +10,13 @@ paths:
   /health:
     get:
       summary: System Health Check
-      description: Returns the current status and metrics of the synchronization server.
+      description: |
+        Status and metrics of the server, for uptime monitors. `checks` tells whether the media
+        library, the campaigns config and the admin sessions storage are working; `version` is the
+        package version plus the git commit.
       responses:
+        '503':
+          description: "Degraded: a check failed (e.g. S3 unreachable) — `status: degraded`, see `checks`"
         '200':
           description: Successful response
           content:

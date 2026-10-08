@@ -11,6 +11,7 @@ const { activeContent, contentKey } = require("../lib/campaign-content");
 const { HttpError } = require("./http-error");
 const { DEFAULT_PROMO } = require("./promo");
 const { safeSend } = require("./safe-send");
+const { log } = require("./log");
 
 function createCampaigns({ storage, instances, mediaUrl }) {
   // Sends a message to every open screen of a campaign; returns how many got it
@@ -74,7 +75,7 @@ function createCampaigns({ storage, instances, mediaUrl }) {
     try {
       return fs.existsSync(TOTEMS_FILE) ? JSON.parse(fs.readFileSync(TOTEMS_FILE, "utf-8") || "{}") : {};
     } catch (e) {
-      console.error("Failed to parse totems.json", e.message);
+      log.error("Config", "Failed to parse totems.json:", e);
       return {};
     }
   }
@@ -98,17 +99,24 @@ function createCampaigns({ storage, instances, mediaUrl }) {
     isConflict: isConfigConflict,
     onChange: (prev, next) => {
       applyRemoteConfig(next);
-      console.log("[Config] Reloaded (changed by another server)");
+      log.info("Config", "Reloaded (changed by another server)");
     },
   });
 
+  // Last refresh result, for /health. Only the first failure in a row is an
+  // error (→ Sentry); repeats every 15s while S3 is down are warnings.
+  let refreshError = null;
   async function refreshConfig() {
     try {
       await configDoc.refresh();
+      if (refreshError) log.info("Config", "Refresh working again");
+      refreshError = null;
     } catch (e) {
-      console.error("[Config] Refresh failed:", e.message);
+      (refreshError ? log.warn : log.error)("Config", "Refresh failed:", e);
+      refreshError = e.message || String(e);
     }
   }
+  const status = () => (refreshError ? { ok: false, error: refreshError } : { ok: true });
 
   // The only way to change the config: re-read the latest version, apply
   // mutate(conf) to a copy, save it conditionally, and retry if another server
@@ -133,7 +141,7 @@ function createCampaigns({ storage, instances, mediaUrl }) {
   // HttpError → its status; anything else = the config storage failed
   function sendError(res, err, context) {
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message, ...(err.extra || {}) });
-    console.error(`[${context}]`, err.message);
+    log.error(context, "Config save failed:", err);
     res.status(502).json({
       error: configStore.remote
         ? `Não foi possível salvar a configuração no S3: ${err.message}`
@@ -153,7 +161,7 @@ function createCampaigns({ storage, instances, mediaUrl }) {
 
   return {
     get conf() { return totemsConf; },
-    configStore, load, refreshConfig, mutateConfig, sendError,
+    configStore, load, refreshConfig, mutateConfig, sendError, status,
     contentFor, videoMessage, broadcastContent, notifyPhones, sendToCampaign, sentContentKeys, promoFor,
   };
 }

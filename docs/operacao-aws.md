@@ -182,11 +182,31 @@ Para voltar à `main` depois: `git checkout main && git pull`.
 
 ⚠️ Versões anteriores a `f6f023f` leem as campanhas do `totems.json` **local**, não do bucket. Num rollback para antes disso, mudanças feitas no admin depois da atualização não aparecem.
 
-## 7. Monitoramento simples
+## 7. Monitoramento
 
-- `/health` (sem login) mostra telas abertas, celulares ouvindo e memória. Aponte um monitor de disponibilidade (UptimeRobot, CloudWatch Synthetics…) para ele.
-- Logs: `pm2 logs videosync` ou `journalctl -u videosync -f`. Linhas úteis: `[Screen]`, `[Media]`, `[Config]`, `[Admin]`, `[S3]`.
-- Carga: `npm run load-test -- --url https://videosync.dbpe.com.br --campaign <id> --screens 50` **fora do horário de uso** (as telas falsas aparecem no admin).
+### Disponibilidade: `/health`
+
+`/health` (sem login) responde **200** com `"status": "ok"` quando tudo funciona e **503** com `"status": "degraded"` quando a biblioteca de mídia, as campanhas ou as sessões não conseguem falar com o S3 — o campo `checks` diz qual. Também mostra a versão (`version`, com o commit), telas abertas, celulares ouvindo e memória.
+
+Monitor gratuito com o [UptimeRobot](https://uptimerobot.com): *Add New Monitor* → tipo **HTTP(s)**, URL `https://videosync.dbpe.com.br/health`, intervalo 5 min, e o seu e-mail nos contatos de alerta. Ele avisa quando o servidor cai **e** quando o S3 falha (503).
+
+### Alertas de erro: Sentry (opcional)
+
+1. Crie uma conta gratuita em [sentry.io](https://sentry.io) e um projeto **Node.js / Express**.
+2. Copie o DSN (Settings → Client Keys) para o `.env` do servidor: `SENTRY_DSN=https://...@....ingest.sentry.io/...`
+3. Reinicie. O console mostra `🚨 Error alerts: Sentry on`.
+
+Vão para o Sentry: erros registrados pelo servidor (falha no S3, upload, separador…), erros de rota e travamentos. Uma falha que se repete (ex.: S3 fora do ar, conferido a cada 15s) gera **um** alerta, não um por tentativa. Nenhum dado pessoal é enviado. `SENTRY_ENVIRONMENT` separa produção de testes (padrão: o `S3_PREFIX`).
+
+### Logs
+
+`pm2 logs videosync` ou `journalctl -u videosync -f`. Linhas úteis: `[Screen]`, `[Media]`, `[Config]`, `[Admin]`, `[Auth]`, `[Stats]`.
+
+Com `LOG_FORMAT=json` cada linha vira um JSON (`time`, `level`, `scope`, `msg` e `error` com o stack) — útil para CloudWatch Logs ou outra ferramenta de busca. Ex.: `pm2 logs videosync --raw | grep '"level":"error"'`.
+
+### Carga
+
+`npm run load-test -- --url https://videosync.dbpe.com.br --campaign <id> --screens 50` **fora do horário de uso** (as telas falsas aparecem no admin).
 
 ## 8. Backup
 

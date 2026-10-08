@@ -9,6 +9,7 @@ const {
   MAX_PHONES_PER_IP, MAX_SYNCS_PER_IP_PER_MINUTE, TRUST_PROXY,
 } = require("./settings");
 const { safeSend } = require("./safe-send");
+const { log } = require("./log");
 
 function attachRealtime(server, { instances, campaigns, stats, mediaUrl }) {
   const { contentFor, videoMessage, sentContentKeys, notifyPhones, promoFor } = campaigns;
@@ -90,7 +91,7 @@ function attachRealtime(server, { instances, campaigns, stats, mediaUrl }) {
     screensPerIp.set(ip, (screensPerIp.get(ip) || 0) + 1);
 
     const inst = instances.register(campaign, instanceId, ws);
-    console.log(`[Screen] ${campaign}/${inst.id} connected`);
+    log.info("Screen", `${campaign}/${inst.id} connected`);
     // A new screen counts once (reconnects of the same instance don't)
     let counted = reconnecting;
 
@@ -115,7 +116,7 @@ function attachRealtime(server, { instances, campaigns, stats, mediaUrl }) {
         const hadSession = !!inst.session;
         const session = instances.startSession(inst, data);
         session.items = itemDurations(data.items, session.duration);
-        console.log(`[Screen] Session ${campaign}/${inst.id} — ${session.duration}s` +
+        log.info("Screen", `Session ${campaign}/${inst.id} — ${session.duration}s` +
           `${session.items ? ` (${session.items.length} videos)` : ""} (pos: ${(Number(data.current_time) || 0).toFixed(2)}s)`);
         safeSend(ws, { type: "session_created", screen_id: campaign, instance: inst.id });
         // Phones already listening must follow the new timeline
@@ -143,7 +144,7 @@ function attachRealtime(server, { instances, campaigns, stats, mediaUrl }) {
       const left = (screensPerIp.get(ip) || 1) - 1;
       if (left > 0) screensPerIp.set(ip, left);
       else screensPerIp.delete(ip);
-      console.log(`[Screen] ${campaign}/${inst.id} disconnected`);
+      log.info("Screen", `${campaign}/${inst.id} disconnected`);
     });
   }
 

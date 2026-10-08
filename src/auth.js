@@ -10,6 +10,7 @@ const {
 } = require("./settings");
 const { createFileConfigStore, createS3ConfigStore, isConfigConflict } = require("../lib/config-store");
 const { createSyncedDoc } = require("../lib/synced-doc");
+const { log } = require("./log");
 
 function createAuth({ storage }) {
   // The cookie holds a random session id. Sessions live in sessions.json (next to
@@ -34,13 +35,18 @@ function createAuth({ storage }) {
   const credentialsTag = () => sign(`${ADMIN_USER}:${ADMIN_PASSWORD}`).slice(0, 22);
   const sessionKey = id => crypto.createHash("sha256").update(id).digest("base64url");
 
+  // Only the first failure in a row is an error (→ Sentry); repeats are warnings
+  let refreshError = null;
   async function refreshSessions() {
     try {
       await sessionsDoc.refresh();
+      refreshError = null;
     } catch (e) {
-      console.error("[Auth] Sessions refresh failed:", e.message);
+      (refreshError ? log.warn : log.error)("Auth", "Sessions refresh failed:", e);
+      refreshError = e.message || String(e);
     }
   }
+  const status = () => (refreshError ? { ok: false, error: refreshError } : { ok: true });
 
   // An unknown id may be a login made on another server a moment ago: re-read
   // the shared file. Callers share one pending re-read, at most one a second, so
@@ -146,7 +152,7 @@ function createAuth({ storage }) {
         // An expired lock starts a fresh count
         const count = entry && !entry.lockedUntil ? entry.count + 1 : 1;
         loginFailures.set(ip, { count, lockedUntil: count >= LOGIN_MAX_FAILURES ? Date.now() + LOGIN_LOCK_MS : 0 });
-        console.warn(`[Auth] Failed login from ${ip} (${count})`);
+        log.warn("Auth", `Failed login from ${ip} (${count})`);
         return res.status(401).json({ error: "Usuário ou senha inválidos" });
       }
 
@@ -160,12 +166,12 @@ function createAuth({ storage }) {
           keys.slice(MAX_SESSIONS).forEach(k => delete all[k]);
         });
       } catch (err) {
-        console.error("[Auth] Could not save the session:", err.message);
+        log.error("Auth", "Could not save the session:", err);
         return res.status(502).json({ error: "Não foi possível iniciar a sessão. Tente de novo." });
       }
       // ~10 years: the session only ends on logout
       setSessionCookie(req, res, id, 10 * 365 * 24 * 3600);
-      console.log(`[Auth] ${ADMIN_USER} logged in from ${ip}`);
+      log.info("Auth", `${ADMIN_USER} logged in from ${ip}`);
       res.json({ success: true, user: ADMIN_USER });
     });
 
@@ -175,7 +181,7 @@ function createAuth({ storage }) {
       try {
         if (key) await sessionsDoc.mutate(all => { delete all[key]; });
       } catch (err) {
-        console.error("[Auth] Could not end the session:", err.message);
+        log.error("Auth", "Could not end the session:", err);
         return res.status(502).json({ error: "Não foi possível encerrar a sessão no servidor. Tente de novo." });
       }
       res.json({ success: true });
@@ -205,16 +211,16 @@ function createAuth({ storage }) {
           others.forEach(k => delete all[k]);
           return others.length;
         });
-        console.log(`[Auth] ${revoked} other session(s) ended`);
+        log.info("Auth", `${revoked} other session(s) ended`);
         res.json({ success: true, revoked });
       } catch (err) {
-        console.error("[Auth] Could not end the sessions:", err.message);
+        log.error("Auth", "Could not end the sessions:", err);
         res.status(502).json({ error: "Não foi possível desconectar os outros aparelhos. Tente de novo." });
       }
     });
   }
 
-  return { register, requireAuth, currentSession, refreshSessions, load: () => sessionsDoc.load() };
+  return { register, requireAuth, currentSession, refreshSessions, status, load: () => sessionsDoc.load() };
 }
 
 module.exports = { createAuth };

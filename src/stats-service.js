@@ -8,6 +8,7 @@ const { TOTEMS_FILE } = require("./settings");
 const { createFileConfigStore, createS3ConfigStore, isConfigConflict } = require("../lib/config-store");
 const { createSyncedDoc } = require("../lib/synced-doc");
 const { createStats, toCsv } = require("../lib/stats");
+const { log } = require("./log");
 
 function createStatsService({ storage, campaigns }) {
   // ── Statistics: daily counters per campaign (lib/stats.js) ─────────────────
@@ -49,7 +50,7 @@ function createStatsService({ storage, campaigns }) {
     try {
       await stats.flush();
     } catch (e) {
-      console.error("[Stats] Save failed (kept for the next try):", e.message);
+      log.error("Stats", "Save failed (kept for the next try):", e);
     }
   }
   setInterval(flushStats, STATS_FLUSH_MS).unref();
@@ -68,7 +69,7 @@ function createStatsService({ storage, campaigns }) {
       try {
         res.json({ timezone: STATS_TIMEZONE, days: await statsDays(req) });
       } catch (err) {
-        console.error("[Stats] Read failed:", err.message);
+        log.error("Stats", "Read failed:", err);
         res.status(502).json({ error: storageErrorMessage(err) });
       }
     });
@@ -82,7 +83,7 @@ function createStatsService({ storage, campaigns }) {
         res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
         res.send(toCsv(days, campaign));
       } catch (err) {
-        console.error("[Stats] CSV failed:", err.message);
+        log.error("Stats", "CSV failed:", err);
         res.status(502).json({ error: storageErrorMessage(err) });
       }
     });

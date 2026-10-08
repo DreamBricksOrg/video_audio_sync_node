@@ -5,12 +5,21 @@ const fs = require("fs");
 const path = require("path");
 const { STATIC_DIR, MIME_TYPES } = require("../settings");
 
-function registerPublicRoutes(app, { instances, mediaStore, mediaUrl }) {
+function registerPublicRoutes(app, { instances, mediaStore, mediaUrl, checks, version }) {
+  const startedAt = new Date().toISOString();
+
   // ── Health check ────────────────────────────────────────────────────────────
+  // For uptime monitors: 503 when the media library, the campaigns config or
+  // the sessions storage is failing (e.g. S3 unreachable), with the reason.
   app.get("/health", (req, res) => {
     const t = instances.totals();
-    res.json({
-      status: "ok",
+    const results = Object.fromEntries(Object.entries(checks).map(([name, check]) => [name, check()]));
+    const ok = Object.values(results).every(r => r.ok);
+    res.status(ok ? 200 : 503).json({
+      status: ok ? "ok" : "degraded",
+      checks: results,
+      version,
+      started_at: startedAt,
       server_time: Date.now() / 1000,
       sessions: t.instances,      // instances kept in memory (open + recently closed)
       screens_online: t.online,

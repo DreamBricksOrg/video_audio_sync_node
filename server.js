@@ -36,6 +36,25 @@ const { registerPublicRoutes, registerQrPage } = require("./src/routes/public");
 const { registerMediaRoutes } = require("./src/routes/media");
 const { registerCampaignRoutes } = require("./src/routes/campaigns");
 const { attachRealtime } = require("./src/realtime");
+const { log } = require("./src/log");
+const { initSentry, sentryErrorHandler, handleCrashes, flushSentry } = require("./src/sentry");
+
+// Version shown in /health and sent to Sentry: package version + git commit
+const VERSION = (() => {
+  const pkg = require("./package.json").version;
+  try {
+    const commit = require("child_process")
+      .execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: __dirname, stdio: ["ignore", "pipe", "ignore"] })
+      .toString().trim();
+    return commit ? `${pkg}+${commit}` : pkg;
+  } catch (_) {
+    return pkg;
+  }
+})();
+
+// Error alerts (only with SENTRY_DSN) and crash reporting
+const sentryOn = initSentry({ release: VERSION });
+handleCrashes();
 
 const { PORT, PUBLIC_URL, MEDIA_BASE_URL, S3_CONFIG, ASSETS_DIR, MEDIA_EXTS, MIME_TYPES, CONFIG_REFRESH_MS } = settings;
 
@@ -78,7 +97,11 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 registerMediaRoutes(app, { storage, mediaStore, library, campaigns });
 registerCampaignRoutes(app, { instances, mediaStore, library, campaigns });
-registerPublicRoutes(app, { instances, mediaStore, mediaUrl });
+registerPublicRoutes(app, {
+  instances, mediaStore, mediaUrl, version: VERSION,
+  checks: { media: () => mediaStore.status(), config: campaigns.status, sessions: auth.status },
+});
+sentryErrorHandler(app);
 
 // ── WebSockets ──────────────────────────────────────────────────────────────
 attachRealtime(server, { instances, campaigns, stats: statsService.stats, mediaUrl });
@@ -92,10 +115,16 @@ async function loadWithRetry(load, attempts = 3) {
       return await load();
     } catch (err) {
       if (i >= attempts) throw err;
-      console.warn(`[Config] Load failed (${err.message}) — retrying (${i}/${attempts - 1})`);
+      log.warn("Config", `Load failed (${err.message}) — retrying (${i}/${attempts - 1})`);
       await new Promise(r => setTimeout(r, 1000 * i));
     }
   }
+}
+
+// Startup banner: as is in text mode; in JSON mode each line is a log entry
+function say(level, line) {
+  if (log.format === "json") log[level]("Server", line.trim().replace(/^\S+\s+/, ""));
+  else (level === "warn" ? console.warn : console.log)(line);
 }
 
 Promise.all([
@@ -103,33 +132,34 @@ Promise.all([
   loadWithRetry(campaigns.load),
   loadWithRetry(auth.load),
 ]).catch(err => {
-  console.error(`\n  ❌ Could not load the campaigns config / admin sessions (${campaigns.configStore.describe()}): ${err.message}\n`);
-  process.exit(1);
+  log.error("Server", `Could not load the campaigns config / admin sessions (${campaigns.configStore.describe()}):`, err);
+  flushSentry().finally(() => process.exit(1));
 }).then(() => server.listen(PORT, "0.0.0.0", () => {
-  console.log(`\n  🎬 OOH Audio Sync running on http://0.0.0.0:${PORT}`);
-  console.log(`  📺 Totem:  ${PUBLIC_URL}/static/totem.html?screen=totem1`);
-  console.log(`  ⚙️  Admin:  ${PUBLIC_URL}/admin`);
-  console.log(`  📱 Mobile: ${PUBLIC_URL}/static/mobile.html?screen=totem1`);
-  console.log(`  🔧 Debug:  ${PUBLIC_URL}/static/mobile_debug.html?screen=totem1 (admin login)`);
-  console.log(`  ❤️  Health: ${PUBLIC_URL}/health`);
-  console.log(`  📖 Docs:   ${PUBLIC_URL}/api-docs\n`);
+  say("info", `\n  🎬 OOH Audio Sync running on http://0.0.0.0:${PORT}`);
+  say("info", `  📺 Totem:  ${PUBLIC_URL}/static/totem.html?screen=totem1`);
+  say("info", `  ⚙️  Admin:  ${PUBLIC_URL}/admin`);
+  say("info", `  📱 Mobile: ${PUBLIC_URL}/static/mobile.html?screen=totem1`);
+  say("info", `  🔧 Debug:  ${PUBLIC_URL}/static/mobile_debug.html?screen=totem1 (admin login)`);
+  say("info", `  ❤️  Health: ${PUBLIC_URL}/health`);
+  say("info", `  📖 Docs:   ${PUBLIC_URL}/api-docs\n`);
   const status = mediaStore.status();
   if (mediaStore.remote) {
-    console.log(`  ☁️  Media library: ${mediaStore.describe()} (${mediaStore.list().length} files) — served from ${MEDIA_BASE_URL}\n`);
-    if (!status.ok) console.error(`  ❌ Could not list the S3 bucket: ${status.error}\n`);
+    say("info", `  ☁️  Media library: ${mediaStore.describe()} (${mediaStore.list().length} files) — served from ${MEDIA_BASE_URL}\n`);
+    if (!status.ok) log.error("Media", `Could not list the S3 bucket: ${status.error}`);
     // Pick up changes made outside the admin (console, s3-sync, another server)
     setInterval(() => mediaStore.refresh(), 60000).unref();
-    console.log(`  🗂️  Campaigns config: ${campaigns.configStore.describe()} (${Object.keys(campaigns.conf).length} campaigns, shared by every server on this bucket/prefix)\n`);
+    say("info", `  🗂️  Campaigns config: ${campaigns.configStore.describe()} (${Object.keys(campaigns.conf).length} campaigns, shared by every server on this bucket/prefix)\n`);
     setInterval(campaigns.refreshConfig, CONFIG_REFRESH_MS).unref();
     setInterval(auth.refreshSessions, CONFIG_REFRESH_MS).unref();
   } else {
-    console.log(`  📁 Media library: ${mediaStore.describe()} (${mediaStore.list().length} files)\n`);
+    say("info", `  📁 Media library: ${mediaStore.describe()} (${mediaStore.list().length} files)\n`);
   }
   if (!settings.ADMIN_USER || !settings.ADMIN_PASSWORD) {
-    console.warn("  ⚠️  ADMIN_USER / ADMIN_PASSWORD not set in .env — admin login is disabled\n");
+    say("warn", "  ⚠️  ADMIN_USER / ADMIN_PASSWORD not set in .env — admin login is disabled\n");
   }
+  if (sentryOn) say("info", "  🚨 Error alerts: Sentry on (SENTRY_DSN)\n");
   if (!settings.SESSION_SECRET_SET) {
-    console.warn("  ⚠️  SESSION_SECRET not set in .env — admin sessions end when the server restarts\n");
+    say("warn", "  ⚠️  SESSION_SECRET not set in .env — admin sessions end when the server restarts\n");
   }
 }));
 
@@ -140,7 +170,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     if (shuttingDown) process.exit(0);
     shuttingDown = true;
     const timeout = setTimeout(() => process.exit(0), 5000);
-    statsService.flushStats().finally(() => {
+    statsService.flushStats().then(() => flushSentry()).finally(() => {
       clearTimeout(timeout);
       process.exit(0);
     });

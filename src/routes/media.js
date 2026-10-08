@@ -5,6 +5,7 @@ const path = require("path");
 const { MEDIA_EXTS, MAX_UPLOAD_BYTES } = require("../settings");
 const { splitMedia, INPUT_EXTS: SPLIT_INPUT_EXTS } = require("../../lib/media-splitter");
 const { renameInConfig } = require("../../lib/campaign-content");
+const { log } = require("../log");
 
 function registerMediaRoutes(app, { storage, mediaStore, library, campaigns }) {
   const {
@@ -75,7 +76,7 @@ function registerMediaRoutes(app, { storage, mediaStore, library, campaigns }) {
       const signed = await storage.presignPut(filename, { size, expiresIn: DIRECT_UPLOAD_EXPIRES_S });
       res.json({ direct: true, filename, url: signed.url, headers: signed.headers, expires_in: signed.expiresIn });
     } catch (err) {
-      console.error(`[Media] Sign upload ${filename} failed:`, err.message);
+      log.error("Media", `Sign upload ${filename} failed:`, err);
       res.status(502).json({ error: storageErrorMessage(err) });
     }
   });
@@ -88,10 +89,10 @@ function registerMediaRoutes(app, { storage, mediaStore, library, campaigns }) {
       const item = await mediaStore.registerUploaded(filename);
       if (!item) return res.status(404).json({ error: "O arquivo não chegou ao S3. Tente enviar de novo." });
       const type = mediaType(filename);
-      console.log(`[Media] Saved ${type} ${filename} (${(item.size / 1024 / 1024).toFixed(1)} MB, direct to S3)`);
+      log.info("Media", `Saved ${type} ${filename} (${(item.size / 1024 / 1024).toFixed(1)} MB, direct to S3)`);
       res.status(201).json({ success: true, filename, type, size: item.size });
     } catch (err) {
-      console.error(`[Media] Register ${filename} failed:`, err.message);
+      log.error("Media", `Register ${filename} failed:`, err);
       res.status(502).json({ error: storageErrorMessage(err) });
     }
   });
@@ -132,14 +133,14 @@ function registerMediaRoutes(app, { storage, mediaStore, library, campaigns }) {
           await mediaStore.putFile(result.video, video);
           await mediaStore.putFile(result.audio, audio);
         } catch (err) {
-          console.error("[Media] Split save failed:", err.message);
+          log.error("Media", "Split save failed:", err);
           return res.status(502).json({ error: storageErrorMessage(err) });
         }
-        console.log(`[Media] Split ${raw} (${(received / 1024 / 1024).toFixed(1)} MB) → ${video} + ${audio}` +
+        log.info("Media", `Split ${raw} (${(received / 1024 / 1024).toFixed(1)} MB) → ${video} + ${audio}` +
           `${result.transcoded ? " (video re-encoded)" : ""} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
         res.status(201).json({ success: true, video, audio, transcoded: result.transcoded, web: result.web, duration: result.duration });
       } catch (err) {
-        console.error("[Media] Split failed:", err.message);
+        log.error("Media", "Split failed:", err);
         const userError = /não tem faixa|não suportado|Já existe/.test(err.message);
         res.status(userError ? 400 : 500).json({
           error: userError ? err.message : "Não foi possível separar o vídeo e o áudio",
@@ -175,7 +176,7 @@ function registerMediaRoutes(app, { storage, mediaStore, library, campaigns }) {
     try {
       await mediaStore.rename(oldName, newName);
     } catch (e) {
-      console.error("[Media] Rename failed", e.message);
+      log.error("Media", "Rename failed", e);
       return res.status(502).json({ error: storageErrorMessage(e) });
     }
 
@@ -188,11 +189,11 @@ function registerMediaRoutes(app, { storage, mediaStore, library, campaigns }) {
         updated = await mutateConfig(conf => renameInConfig(conf, oldName, newName));
       }
     } catch (err) {
-      console.error("[Media] Rename: config update failed", err.message);
+      log.error("Media", "Rename: config update failed", err);
       return res.status(502).json({ error: `Arquivo renomeado, mas não foi possível atualizar os totens: ${err.message}` });
     }
 
-    console.log(`[Media] Renamed ${oldName} → ${newName}${updated.length ? ` (totems: ${updated.join(", ")})` : ""}`);
+    log.info("Media", `Renamed ${oldName} → ${newName}${updated.length ? ` (totems: ${updated.join(", ")})` : ""}`);
     res.json({ success: true, filename: newName, updated_totems: updated });
   });
 
@@ -210,10 +211,10 @@ function registerMediaRoutes(app, { storage, mediaStore, library, campaigns }) {
     try {
       await mediaStore.remove(filename);
     } catch (e) {
-      console.error("[Media] Delete failed", e.message);
+      log.error("Media", "Delete failed", e);
       return res.status(502).json({ error: storageErrorMessage(e) });
     }
-    console.log(`[Media] Deleted ${filename}`);
+    log.info("Media", `Deleted ${filename}`);
     res.json({ success: true, filename });
   });
 }

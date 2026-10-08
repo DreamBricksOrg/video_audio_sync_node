@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const { MEDIA_EXTS, VIDEO_EXTS, MAX_UPLOAD_BYTES } = require("./settings");
 const { campaignsUsing } = require("../lib/campaign-content");
+const { log } = require("./log");
 
 function createMediaLibrary({ mediaStore, campaigns }) {
   // Turns an arbitrary name into a safe "base.ext" (accents stripped, odd chars → "_")
@@ -80,7 +81,7 @@ function createMediaLibrary({ mediaStore, campaigns }) {
     });
     req.on("aborted", () => fail(400, "Envio interrompido"));
     out.on("error", e => {
-      console.error("[Media] Write failed", e);
+      log.error("Media", "Write failed", e);
       fail(500, "Não foi possível salvar o arquivo");
     });
     out.on("finish", () => {
@@ -98,12 +99,12 @@ function createMediaLibrary({ mediaStore, campaigns }) {
       try {
         await mediaStore.putFile(tmpPath, targetName);
       } catch (err) {
-        console.error(`[Media] Save ${targetName} failed:`, err.message);
+        log.error("Media", `Save ${targetName} failed:`, err);
         fs.rm(tmpPath, { force: true }, () => {});
         return fail(502, storageErrorMessage(err));
       }
       const type = mediaType(targetName);
-      console.log(`[Media] Saved ${type} ${targetName} (${(received / 1024 / 1024).toFixed(1)} MB)`);
+      log.info("Media", `Saved ${type} ${targetName} (${(received / 1024 / 1024).toFixed(1)} MB)`);
       res.status(status).json({ success: true, filename: targetName, type, size: received });
     });
   }

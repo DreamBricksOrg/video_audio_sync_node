@@ -3,6 +3,7 @@
 const { HttpError } = require("../http-error");
 const { DEFAULT_PROMO, PROMO_ICONS, PROMO_MAX_LINKS, sanitizePromo } = require("../promo");
 const { playlistOf, withPlaylist, sanitizePlaylist, sanitizeSchedule } = require("../../lib/campaign-content");
+const { log } = require("../log");
 
 function registerCampaignRoutes(app, { instances, mediaStore, library, campaigns }) {
   const { listMedia } = library;
@@ -53,7 +54,7 @@ function registerCampaignRoutes(app, { instances, mediaStore, library, campaigns
       return sendError(res, err, "Admin");
     }
 
-    console.log(`[Admin] Updated mobile links for totem ${id} (${promo.links.length} links)`);
+    log.info("Admin", `Updated mobile links for totem ${id} (${promo.links.length} links)`);
     res.json({ success: true, id, promo });
   });
 
@@ -77,7 +78,7 @@ function registerCampaignRoutes(app, { instances, mediaStore, library, campaigns
     }
 
     // Open screens switch right away (mutateConfig → broadcastContent)
-    console.log(`[Admin] Assigned ${playlist.map(i => `${i.video}+${i.audio}`).join(", ")} to totem ${id}`);
+    log.info("Admin", `Assigned ${playlist.map(i => `${i.video}+${i.audio}`).join(", ")} to totem ${id}`);
     res.json({ success: true, id, video: playlist[0].video, audio: playlist[0].audio, playlist });
   });
 
@@ -163,7 +164,7 @@ function registerCampaignRoutes(app, { instances, mediaStore, library, campaigns
       return sendError(res, err, "Admin");
     }
     // Screens already open under this ID pick up the video right away (broadcastContent)
-    console.log(`[Admin] Created totem ${id}`);
+    log.info("Admin", `Created totem ${id}`);
     res.status(201).json({ success: true, id, ...created, playlist: playlistOf(created) });
   });
 
@@ -205,7 +206,7 @@ function registerCampaignRoutes(app, { instances, mediaStore, library, campaigns
       sendToCampaign(oldId, { type: "change_screen", screen: newId });
     }
 
-    console.log(`[Admin] Updated totem ${oldId}${newId !== oldId ? ` → ${newId}` : ""}`);
+    log.info("Admin", `Updated totem ${oldId}${newId !== oldId ? ` → ${newId}` : ""}`);
     res.json({ success: true, id: newId, renamed_from: newId !== oldId ? oldId : undefined, ...conf, playlist: playlistOf(conf) });
   });
 
@@ -224,7 +225,7 @@ function registerCampaignRoutes(app, { instances, mediaStore, library, campaigns
     } catch (err) {
       return sendError(res, err, "Admin");
     }
-    console.log(`[Admin] Deleted totem ${id}`);
+    log.info("Admin", `Deleted totem ${id}`);
     res.json({ success: true, id, still_online: instances.online(id).length > 0 });
   });
 }
