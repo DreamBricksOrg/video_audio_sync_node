@@ -48,3 +48,31 @@ test("a failed write keeps the previous file intact", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("retries the rename while Windows has the target open (EPERM/EBUSY)", t => {
+  const dir = tmpDir();
+  const realRename = fs.renameSync;
+  let failures = 2;
+  t.mock.method(fs, "renameSync", (from, to) => {
+    if (failures-- > 0) throw Object.assign(new Error("busy"), { code: "EPERM" });
+    return realRename(from, to);
+  });
+  try {
+    const file = path.join(dir, "sessions.json");
+    writeJsonAtomic(file, { ok: true });
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { ok: true });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("gives up after a few busy retries and leaves no temp file", t => {
+  const dir = tmpDir();
+  t.mock.method(fs, "renameSync", () => { throw Object.assign(new Error("busy"), { code: "EBUSY" }); });
+  try {
+    assert.throws(() => writeJsonAtomic(path.join(dir, "x.json"), {}), /busy/);
+    assert.deepEqual(fs.readdirSync(dir), []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
