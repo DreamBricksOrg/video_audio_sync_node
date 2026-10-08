@@ -30,6 +30,41 @@ html, body {
 .topbar-user { display: flex; align-items: center; gap: var(--space-3); }
 .user-name { font-size: var(--text-sm); color: var(--text-secondary); }
 
+/* ── Section tabs ── */
+.admin-nav {
+    background: var(--surface-card);
+    border-bottom: 1px solid var(--border-subtle);
+    position: sticky; top: 0; z-index: 20;
+}
+.admin-nav-inner {
+    max-width: 1200px; margin: 0 auto;
+    padding: 0 var(--space-6);
+    display: flex; gap: var(--space-1);
+    overflow-x: auto; scrollbar-width: none;
+}
+.admin-nav-inner::-webkit-scrollbar { display: none; }
+.nav-tab {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: var(--space-3) var(--space-3);
+    font-size: var(--text-sm); font-weight: var(--weight-medium);
+    color: var(--text-secondary); text-decoration: none; white-space: nowrap;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.nav-tab svg { width: 16px; height: 16px; }
+.nav-tab:hover { color: var(--text-primary); }
+.nav-tab.active { color: var(--db-blue-900); border-bottom-color: var(--db-blue-500); }
+.nav-tab:focus-visible { outline: none; box-shadow: var(--shadow-focus); border-radius: var(--radius-sm); }
+.nav-tab[hidden] { display: none; }
+
+/* Each tab's area starts at the top: no separator above it */
+.view.media-section { margin-top: 0; padding-top: 0; border-top: 0; }
+.section-header h1 {
+    font-family: var(--font-brand);
+    font-size: var(--text-2xl); font-weight: var(--weight-bold);
+    line-height: var(--leading-snug); letter-spacing: var(--tracking-tight);
+    color: var(--db-blue-900);
+}
+
 /* ── Layout ── */
 .admin-layout {
     max-width: 1200px; margin: 0 auto;

@@ -45,7 +45,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function init() {
-        loadSession();
+        await loadSession();
+        showView();
         await fetchMedia();
         await fetchTotems();
         // Poll for statuses
@@ -66,11 +67,28 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) {}
         const isAdmin = currentUser.role === 'admin';
         document.querySelectorAll('.admin-only').forEach(el => { el.hidden = !isAdmin; });
-        if (!isAdmin) return;
-        loadSessionCount();
-        loadUsers();
-        loadAudit();
+        if (isAdmin) loadSessionCount();
     }
+
+    // ── Sections (tabs): one area at a time, chosen by the address (#midia…)
+    // so a reload or a saved link opens the same tab ──
+    const VIEWS = ['campanhas', 'midia', 'estatisticas', 'usuarios', 'atividades'];
+    const ADMIN_VIEWS = ['usuarios', 'atividades'];
+    function showView() {
+        let view = location.hash.slice(1);
+        if (!VIEWS.includes(view) || (ADMIN_VIEWS.includes(view) && currentUser.role !== 'admin')) view = 'campanhas';
+        document.querySelectorAll('.view').forEach(el => { el.hidden = el.dataset.view !== view; });
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            const active = tab.dataset.view === view;
+            tab.classList.toggle('active', active);
+            tab.setAttribute('aria-selected', active);
+        });
+        // Fresh data when entering a tab (the chart also needs to be visible to lay out)
+        if (view === 'estatisticas') loadStats();
+        if (view === 'usuarios') loadUsers();
+        if (view === 'atividades') loadAudit();
+    }
+    window.addEventListener('hashchange', showView);
 
     // "Desconectar outros aparelhos" only shows when another browser is logged in
     const revokeOthersBtn = document.getElementById('revokeOthersBtn');

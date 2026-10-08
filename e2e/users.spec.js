@@ -24,6 +24,7 @@ test("admin creates an editor; the editor has no users/activity sections; the lo
     const admin = await adminCtx.newPage();
     await loginAt(admin, "test", "test-pass");
     await expect(admin.locator("#currentUser")).toHaveText("test · Admin");
+    await admin.locator('.nav-tab[data-view="usuarios"]').click();
     await expect(admin.locator("#usersSection")).toBeVisible();
     await expect(admin.locator("#usersList tr")).toHaveCount(1);
 
@@ -36,8 +37,12 @@ test("admin creates an editor; the editor has no users/activity sections; the lo
     const editor = await editorCtx.newPage();
     await loginAt(editor, "bia", "senha-da-bia");
     await expect(editor.locator("#currentUser")).toHaveText("bia · Editor");
+    await expect(editor.locator('.nav-tab[data-view="usuarios"]')).toBeHidden();
+    await expect(editor.locator('.nav-tab[data-view="atividades"]')).toBeHidden();
+    // Typing the address of an admin tab falls back to the campaigns
+    await editor.goto(`${server.base}/admin#usuarios`);
+    await expect(editor.locator('.view[data-view="campanhas"]')).toBeVisible();
     await expect(editor.locator("#usersSection")).toBeHidden();
-    await expect(editor.locator("#auditSection")).toBeHidden();
     await expect(editor.locator("#revokeOthersBtn")).toBeHidden();
 
     // The editor creates a campaign
@@ -46,6 +51,7 @@ test("admin creates an editor; the editor has no users/activity sections; the lo
     await editor.locator("#totemSaveBtn").click();
     await expect(editor.locator(".totem-card .totem-id", { hasText: "da_bia" })).toBeVisible();
 
+    await admin.locator('.nav-tab[data-view="atividades"]').click();
     await admin.locator("#auditRefresh").click();
     const row = admin.locator("#auditList tr", { hasText: "Criou campanha" });
     await expect(row).toContainText("bia");
@@ -54,6 +60,7 @@ test("admin creates an editor; the editor has no users/activity sections; the lo
 
     // Demote to nothing: delete the editor → her session ends
     admin.on("dialog", d => d.accept());
+    await admin.locator('.nav-tab[data-view="usuarios"]').click();
     await admin.locator('#usersList tr[data-name="bia"] .user-delete').click();
     await expect(admin.locator('#usersList tr[data-name="bia"]')).toHaveCount(0);
     await editor.goto(`${server.base}/admin`);

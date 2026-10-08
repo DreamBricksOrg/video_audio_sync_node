@@ -107,6 +107,7 @@ test("statistics: today's screens and scans, per campaign, with CSV export", asy
   screen.close();
 
   await login(page);
+  await page.locator('.nav-tab[data-view="estatisticas"]').click();
   const value = metric => page.locator(`.stat-card[data-metric="${metric}"] .stat-value`);
   await expect(value("screens")).toHaveText("1");
   await expect(value("scans")).toHaveText("1");
@@ -127,4 +128,25 @@ test("statistics: today's screens and scans, per campaign, with CSV export", asy
   await page.locator("#statsCsv").click();
   const file = await download;
   expect(file.suggestedFilename()).toMatch(/^estatisticas-ok-.*\.csv$/);
+});
+
+test("tabs: one area at a time, the address keeps the tab across reloads", async ({ page }) => {
+  await login(page);
+  const view = name => page.locator(`.view[data-view="${name}"]`);
+  await expect(view("campanhas")).toBeVisible();
+  await expect(view("midia")).toBeHidden();
+  await expect(page.locator('.nav-tab[data-view="campanhas"]')).toHaveClass(/active/);
+
+  await page.locator('.nav-tab[data-view="midia"]').click();
+  await expect(page).toHaveURL(/#midia$/);
+  await expect(view("midia")).toBeVisible();
+  await expect(view("campanhas")).toBeHidden();
+  await expect(view("estatisticas")).toBeHidden();
+
+  await page.reload();
+  await expect(view("midia")).toBeVisible();
+  await expect(page.locator('.nav-tab[data-view="midia"]')).toHaveClass(/active/);
+
+  await page.goto(`${server.base}/admin#nao-existe`);
+  await expect(view("campanhas")).toBeVisible();
 });

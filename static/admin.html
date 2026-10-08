@@ -25,7 +25,18 @@
         </div>
     </header>
 
+    <nav class="admin-nav" aria-label="Seções do admin">
+        <div class="admin-nav-inner" role="tablist">
+            <a href="#campanhas" class="nav-tab" data-view="campanhas" role="tab"><i data-lucide="monitor-play"></i> Campanhas</a>
+            <a href="#midia" class="nav-tab" data-view="midia" role="tab"><i data-lucide="film"></i> Mídia</a>
+            <a href="#estatisticas" class="nav-tab" data-view="estatisticas" role="tab"><i data-lucide="bar-chart-3"></i> Estatísticas</a>
+            <a href="#usuarios" class="nav-tab admin-only" data-view="usuarios" role="tab" hidden><i data-lucide="users"></i> Usuários</a>
+            <a href="#atividades" class="nav-tab admin-only" data-view="atividades" role="tab" hidden><i data-lucide="history"></i> Atividades</a>
+        </div>
+    </nav>
+
     <div class="admin-layout">
+        <div class="view" data-view="campanhas" role="tabpanel">
         <div class="page-header">
             <div>
                 <h1>Central de Totens</h1>
@@ -39,11 +50,12 @@
         <main class="grid-container" id="totemGrid">
             <!-- Populated via JS -->
         </main>
+        </div>
 
-        <section class="media-section stats-section">
+        <section class="media-section stats-section view" data-view="estatisticas" role="tabpanel" hidden>
             <div class="section-header">
                 <div>
-                    <h2>Estatísticas</h2>
+                    <h1>Estatísticas</h1>
                     <p class="page-subtitle">Contagem por dia (horário de Brasília), guardada por 90 dias. Só números, sem dados pessoais.</p>
                 </div>
                 <div class="stats-controls">
@@ -85,10 +97,10 @@
             </table>
         </section>
 
-        <section class="media-section admin-only" id="usersSection" hidden>
+        <section class="media-section view" data-view="usuarios" id="usersSection" role="tabpanel" hidden>
             <div class="section-header">
                 <div>
-                    <h2>Usuários</h2>
+                    <h1>Usuários</h1>
                     <p class="page-subtitle">Admin pode tudo. Editor cuida de campanhas, mídia, links e estatísticas, mas não de usuários nem do registro de atividades.</p>
                 </div>
             </div>
@@ -110,10 +122,10 @@
             </table>
         </section>
 
-        <section class="media-section admin-only" id="auditSection" hidden>
+        <section class="media-section view" data-view="atividades" id="auditSection" role="tabpanel" hidden>
             <div class="section-header">
                 <div>
-                    <h2>Registro de atividades</h2>
+                    <h1>Registro de atividades</h1>
                     <p class="page-subtitle">Quem fez o quê no admin (este mês e o anterior). Guardado por 12 meses.</p>
                 </div>
                 <button type="button" class="btn btn-secondary" id="auditRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
@@ -126,10 +138,10 @@
             </div>
         </section>
 
-        <section class="media-section">
+        <section class="media-section view" data-view="midia" role="tabpanel" hidden>
             <div class="section-header">
                 <div>
-                    <h2>Biblioteca de mídia</h2>
+                    <h1>Biblioteca de mídia</h1>
                     <p class="page-subtitle">Vídeos (.mp4, .webm) e áudios (.mp3, .wav, .ogg) salvos no servidor.</p>
                 </div>
                 <label class="btn btn-secondary" for="mediaInput">
