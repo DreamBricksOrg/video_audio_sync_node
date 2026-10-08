@@ -457,7 +457,8 @@ html, body {
     font-size: var(--text-xs); color: var(--text-secondary);
 }
 .in-use {
-    padding: 0 8px; border-radius: var(--radius-pill);
+    padding: 0 8px; border-radius: var(--radius-pill); max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     background: var(--db-blue-50); color: var(--db-blue-700);
     font-weight: var(--weight-semibold);
 }
@@ -564,3 +565,64 @@ html, body {
 .audit-table td:last-child, .audit-table th:last-child { text-align: left; }
 .audit-table td:first-child { white-space: nowrap; color: var(--text-secondary); }
 @media (max-width: 640px) { .user-form { grid-template-columns: 1fr; } }
+
+/* ── Pagination ── */
+.pager {
+    display: flex; align-items: center; justify-content: center; gap: var(--space-3);
+    padding: var(--space-3) 0;
+}
+.pager[hidden] { display: none; }
+.pager-info { font-size: var(--text-sm); color: var(--text-secondary); min-width: 110px; text-align: center; }
+.pager .icon-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* ── Hamburger menu (small screens) ── */
+.menu-toggle { display: none; }
+.menu-account { display: none; }
+
+@media (max-width: 768px) {
+    .topbar-inner { padding: var(--space-3) var(--space-4); }
+    .topbar-user { display: none; }
+    .menu-toggle { display: inline-flex; width: 40px; height: 40px; }
+    .menu-toggle svg { width: 22px; height: 22px; }
+
+    .admin-nav { display: none; position: sticky; top: 0; box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.08)); }
+    .admin-nav.open { display: block; }
+    .admin-nav-inner { flex-direction: column; gap: 0; padding: var(--space-2) var(--space-4) var(--space-3); overflow: visible; }
+    .nav-tab {
+        padding: var(--space-3) var(--space-3); margin: 0;
+        border-bottom: 0; border-left: 3px solid transparent; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+        font-size: var(--text-base);
+    }
+    .nav-tab.active { border-left-color: var(--db-blue-500); background: var(--db-blue-50); }
+    .menu-account {
+        display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1);
+        margin-top: var(--space-2); padding-top: var(--space-3);
+        border-top: 1px solid var(--border-subtle);
+    }
+    .menu-account .user-name { padding: 0 var(--space-3) var(--space-1); }
+    .menu-account [hidden] { display: none; }
+
+    .admin-layout { padding: var(--space-6) var(--space-4); }
+    .page-header { margin-bottom: var(--space-6); }
+    .page-header .btn, .section-header .btn { width: 100%; justify-content: center; }
+}
+
+/* ── Tables on phones: each row becomes a small card ── */
+@media (max-width: 640px) {
+    .users-table thead, .audit-table thead { display: none; }
+    .users-table tr, .audit-table tr {
+        display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-3);
+        padding: var(--space-3) 0; border-bottom: 1px solid var(--border-subtle);
+    }
+    .users-table td, .audit-table td { display: block; padding: 0; border: 0; text-align: left !important; }
+    .users-table td:nth-child(2) { grid-row: 2; }
+    .users-table td:nth-child(3) { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
+    .users-table .user-password { padding: 0 var(--space-2); }
+    .audit-table tr { grid-template-columns: auto 1fr; gap: 2px var(--space-1); }
+    .audit-table td:nth-child(1) { grid-column: 1 / -1; font-size: var(--text-xs); color: var(--text-secondary); }
+    .audit-table td:nth-child(2)::after { content: " ·"; }
+    .audit-table td:nth-child(3) { font-weight: var(--weight-medium); }
+    .audit-table td:nth-child(4) { grid-column: 1 / -1; color: var(--text-secondary); overflow-wrap: anywhere; }
+    .audit-scroll { max-height: none; }
+    .stats-controls { width: 100%; }
+}

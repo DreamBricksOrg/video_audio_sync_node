@@ -22,16 +22,25 @@
                     <i data-lucide="log-out"></i> Sair
                 </button>
             </div>
+            <!-- Small screens: the tabs and the account actions go into this menu -->
+            <button type="button" class="menu-toggle icon-btn" id="menuToggle" aria-label="Abrir menu" aria-expanded="false" aria-controls="adminNav">
+                <i data-lucide="menu"></i>
+            </button>
         </div>
     </header>
 
-    <nav class="admin-nav" aria-label="Seções do admin">
+    <nav class="admin-nav" id="adminNav" aria-label="Seções do admin">
         <div class="admin-nav-inner" role="tablist">
             <a href="#campanhas" class="nav-tab" data-view="campanhas" role="tab"><i data-lucide="monitor-play"></i> Campanhas</a>
             <a href="#midia" class="nav-tab" data-view="midia" role="tab"><i data-lucide="film"></i> Mídia</a>
             <a href="#estatisticas" class="nav-tab" data-view="estatisticas" role="tab"><i data-lucide="bar-chart-3"></i> Estatísticas</a>
             <a href="#usuarios" class="nav-tab admin-only" data-view="usuarios" role="tab" hidden><i data-lucide="users"></i> Usuários</a>
             <a href="#atividades" class="nav-tab admin-only" data-view="atividades" role="tab" hidden><i data-lucide="history"></i> Atividades</a>
+            <div class="menu-account">
+                <span id="menuUser" class="user-name"></span>
+                <button type="button" id="menuRevoke" class="btn btn-ghost btn-sm" hidden><i data-lucide="monitor-x"></i> Desconectar outros aparelhos</button>
+                <button type="button" id="menuLogout" class="btn btn-ghost btn-sm"><i data-lucide="log-out"></i> Sair</button>
+            </div>
         </div>
     </nav>
 
@@ -50,6 +59,7 @@
         <main class="grid-container" id="totemGrid">
             <!-- Populated via JS -->
         </main>
+        <nav class="pager" id="pager-totems" aria-label="Páginas das campanhas" hidden></nav>
         </div>
 
         <section class="media-section stats-section view" data-view="estatisticas" role="tabpanel" hidden>
@@ -95,6 +105,7 @@
                 <thead><tr><th>Site</th><th>Telas abertas</th></tr></thead>
                 <tbody id="statsSites"></tbody>
             </table>
+            <nav class="pager" id="pager-sites" aria-label="Páginas dos sites" hidden></nav>
         </section>
 
         <section class="media-section view" data-view="usuarios" id="usersSection" role="tabpanel" hidden>
@@ -120,6 +131,7 @@
                 <thead><tr><th>Usuário</th><th>Papel</th><th></th></tr></thead>
                 <tbody id="usersList"></tbody>
             </table>
+            <nav class="pager" id="pager-users" aria-label="Páginas dos usuários" hidden></nav>
         </section>
 
         <section class="media-section view" data-view="atividades" id="auditSection" role="tabpanel" hidden>
@@ -136,6 +148,7 @@
                     <tbody id="auditList"></tbody>
                 </table>
             </div>
+            <nav class="pager" id="pager-audit" aria-label="Páginas do registro" hidden></nav>
         </section>
 
         <section class="media-section view" data-view="midia" role="tabpanel" hidden>
@@ -183,10 +196,12 @@
                 <div class="media-panel">
                     <h3><i data-lucide="film"></i> Vídeos <span class="count" id="videoCount">0</span></h3>
                     <ul id="videoList" class="media-list"></ul>
+                    <nav class="pager" id="pager-videos" aria-label="Páginas dos vídeos" hidden></nav>
                 </div>
                 <div class="media-panel">
                     <h3><i data-lucide="music"></i> Áudios <span class="count" id="audioCount">0</span></h3>
                     <ul id="audioList" class="media-list"></ul>
+                    <nav class="pager" id="pager-audios" aria-label="Páginas dos áudios" hidden></nav>
                 </div>
             </div>
         </section>

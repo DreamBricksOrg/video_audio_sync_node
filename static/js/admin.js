@@ -62,8 +62,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await api('/api/session');
             currentUser = await res.json();
-            document.getElementById('currentUser').textContent =
-                `${currentUser.user} · ${currentUser.role === 'admin' ? 'Admin' : 'Editor'}`;
+            const label = `${currentUser.user} · ${currentUser.role === 'admin' ? 'Admin' : 'Editor'}`;
+            document.getElementById('currentUser').textContent = label;
+            document.getElementById('menuUser').textContent = label;
         } catch (_) {}
         const isAdmin = currentUser.role === 'admin';
         document.querySelectorAll('.admin-only').forEach(el => { el.hidden = !isAdmin; });
@@ -90,6 +91,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     window.addEventListener('hashchange', showView);
 
+    // ── Small screens: hamburger menu with the tabs and the account actions ──
+    const menuToggle = document.getElementById('menuToggle');
+    const adminNav = document.getElementById('adminNav');
+    function setMenu(open) {
+        adminNav.classList.toggle('open', open);
+        menuToggle.setAttribute('aria-expanded', open);
+        menuToggle.setAttribute('aria-label', open ? 'Fechar menu' : 'Abrir menu');
+        menuToggle.innerHTML = `<i data-lucide="${open ? 'x' : 'menu'}"></i>`;
+        lucide.createIcons();
+    }
+    menuToggle.addEventListener('click', () => setMenu(!adminNav.classList.contains('open')));
+    adminNav.addEventListener('click', e => { if (e.target.closest('.nav-tab')) setMenu(false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && adminNav.classList.contains('open')) setMenu(false); });
+    document.getElementById('menuLogout').addEventListener('click', () => document.getElementById('logoutBtn').click());
+    document.getElementById('menuRevoke').addEventListener('click', () => {
+        setMenu(false);
+        document.getElementById('revokeOthersBtn').click();
+    });
+
     // "Desconectar outros aparelhos" only shows when another browser is logged in
     const revokeOthersBtn = document.getElementById('revokeOthersBtn');
     async function loadSessionCount() {
@@ -97,6 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const { count } = await (await api('/api/sessions')).json();
             const others = count - 1;
             revokeOthersBtn.hidden = others < 1;
+            document.getElementById('menuRevoke').hidden = others < 1;
             document.getElementById('revokeOthersLabel').textContent =
                 `Desconectar outros aparelhos (${others})`;
         } catch (_) {}
@@ -149,6 +170,36 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ── Pagination: every list shows one page at a time, with a pager below.
+    // The page is kept per list (the 5s refresh of the cards doesn't reset it).
+    const currentPages = {}; // list name → page (1-based)
+    function pageOf(name, items, size) {
+        const pages = Math.max(1, Math.ceil(items.length / size));
+        const page = Math.min(Math.max(currentPages[name] || 1, 1), pages);
+        currentPages[name] = page;
+        const start = (page - 1) * size;
+        return { items: items.slice(start, start + size), page, pages, total: items.length, from: start + 1, to: Math.min(start + size, items.length) };
+    }
+
+    // Draws "‹ 11–20 de 47 ›" into <nav id="pager-NAME">; hidden when one page is enough
+    function renderPager(name, info, onChange) {
+        const el = document.getElementById(`pager-${name}`);
+        if (!el) return;
+        el.hidden = info.pages <= 1;
+        if (el.hidden) { el.innerHTML = ''; return; }
+        el.innerHTML = `
+            <button type="button" class="icon-btn" data-page="${info.page - 1}" ${info.page === 1 ? 'disabled' : ''} aria-label="Página anterior"><i data-lucide="chevron-left"></i></button>
+            <span class="pager-info">${info.from}–${info.to} de ${info.total}</span>
+            <button type="button" class="icon-btn" data-page="${info.page + 1}" ${info.page === info.pages ? 'disabled' : ''} aria-label="Próxima página"><i data-lucide="chevron-right"></i></button>`;
+        el.onclick = e => {
+            const btn = e.target.closest('[data-page]');
+            if (!btn || btn.disabled) return;
+            currentPages[name] = Number(btn.dataset.page);
+            onChange();
+        };
+        lucide.createIcons();
+    }
+
     function escapeHtml(s) {
         return String(s ?? '').replace(/[&<>"']/g, c =>
             ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -165,11 +216,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Re-rendering every poll would wipe unsaved select changes, so only rebuild
     // the cards when something other than live status changed.
     let totemsSignature = '';
+    let lastTotems = [];
+    const TOTEMS_PER_PAGE = 12;
 
     function renderTotems(totems) {
         totemsById = Object.fromEntries(totems.map(t => [t.id, t]));
+        lastTotems = totems;
+        const page = pageOf('totems', totems, TOTEMS_PER_PAGE);
 
         const signature = JSON.stringify([
+            page.page,
             totems.map(t => [t.id, t.configured, t.video, t.audio, t.missing, t.playlist, t.schedule, t.showing]),
             videosCache, audiosCache,
         ]);
@@ -180,12 +236,17 @@ document.addEventListener('DOMContentLoaded', () => {
         totemsSignature = signature;
 
         totemGrid.innerHTML = '';
+        renderPager('totems', page, () => {
+            totemsSignature = '';
+            renderTotems(lastTotems);
+            totemGrid.scrollIntoView({ block: 'start' });
+        });
         if (totems.length === 0) {
             totemGrid.innerHTML = '<div class="empty-state">Nenhum totem cadastrado ainda. Clique em "Adicionar totem" para começar.</div>';
             return;
         }
 
-        totems.forEach(totem => {
+        page.items.forEach(totem => {
             const card = document.createElement('div');
             card.className = 'totem-card';
             card.dataset.id = totem.id;
@@ -530,7 +591,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (item.used_by.length) {
             const badge = document.createElement('span');
             badge.className = 'in-use';
-            badge.textContent = `Em uso: ${item.used_by.join(', ')}`;
+            // Long lists stay one line: the first two + "e mais N"; all of them on hover
+            const shown = item.used_by.slice(0, 2).join(', ');
+            const more = item.used_by.length - 2;
+            badge.textContent = `Em uso: ${shown}${more > 0 ? ` e mais ${more}` : ''}`;
+            badge.title = `Em uso por: ${item.used_by.join(', ')}`;
             meta.appendChild(badge);
         }
         info.append(name, meta);
@@ -565,9 +630,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return li;
     }
 
-    function renderMediaList(listEl, countEl, items) {
+    const MEDIA_PER_PAGE = 10;
+    function renderMediaList(listEl, countEl, items, name) {
         listEl.innerHTML = '';
         document.getElementById(countEl).textContent = items.length;
+        const page = pageOf(name, mediaError ? [] : items, MEDIA_PER_PAGE);
+        renderPager(name, page, renderMedia);
         if (mediaError || items.length === 0) {
             const li = document.createElement('li');
             li.className = mediaError ? 'empty media-error' : 'empty';
@@ -575,12 +643,12 @@ document.addEventListener('DOMContentLoaded', () => {
             listEl.appendChild(li);
             return;
         }
-        items.forEach(item => listEl.appendChild(renderMediaRow(item)));
+        page.items.forEach(item => listEl.appendChild(renderMediaRow(item)));
     }
 
     function renderMedia() {
-        renderMediaList(videoList, 'videoCount', mediaCache.filter(m => m.type === 'video'));
-        renderMediaList(audioList, 'audioCount', mediaCache.filter(m => m.type === 'audio'));
+        renderMediaList(videoList, 'videoCount', mediaCache.filter(m => m.type === 'video'), 'videos');
+        renderMediaList(audioList, 'audioCount', mediaCache.filter(m => m.type === 'audio'), 'audios');
         lucide.createIcons();
     }
 
@@ -1266,8 +1334,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
 
         const sites = Object.entries(total.sites).sort((a, b) => b[1] - a[1]);
+        const sitesPage = pageOf('sites', sites, 10);
+        renderPager('sites', sitesPage, renderStats);
         document.getElementById('statsSites').innerHTML = sites.length
-            ? sites.map(([site, n]) => `<tr><td>${escapeHtml(site)}</td><td>${n.toLocaleString('pt-BR')}</td></tr>`).join('')
+            ? sitesPage.items.map(([site, n]) => `<tr><td>${escapeHtml(site)}</td><td>${n.toLocaleString('pt-BR')}</td></tr>`).join('')
             : '<tr><td colspan="2" class="empty">Nenhuma tela aberta no período.</td></tr>';
     }
 
@@ -1299,26 +1369,33 @@ document.addEventListener('DOMContentLoaded', () => {
         return data;
     }
 
+    let lastUsers = [];
     async function loadUsers() {
         try {
-            const list = await usersApi('GET', '/api/users');
-            usersList.innerHTML = list.map(u => `
-                <tr data-name="${escapeHtml(u.name)}">
-                    <td>${escapeHtml(u.name)}${u.name === currentUser.user ? ' <span class="field-hint">(você)</span>' : ''}</td>
-                    <td>${u.main
-                        ? '<span class="field-hint">Admin — conta principal (.env)</span>'
-                        : `<select class="custom-select user-role" aria-label="Papel de ${escapeHtml(u.name)}">
-                               ${Object.entries(ROLE_LABELS).map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}
-                           </select>`}</td>
-                    <td><div class="row-actions">${u.main ? '' : `
-                        <button type="button" class="btn btn-ghost btn-sm user-password"><i data-lucide="key-round"></i> Nova senha</button>
-                        <button type="button" class="icon-btn danger user-delete" title="Excluir" aria-label="Excluir ${escapeHtml(u.name)}"><i data-lucide="trash-2"></i></button>`}</div>
-                    </td>
-                </tr>`).join('');
-            lucide.createIcons();
+            lastUsers = await usersApi('GET', '/api/users');
+            renderUsers();
         } catch (e) {
             showUserError(`Não foi possível carregar os usuários: ${e.message}`);
         }
+    }
+
+    function renderUsers() {
+        const page = pageOf('users', lastUsers, 10);
+        renderPager('users', page, renderUsers);
+        usersList.innerHTML = page.items.map(u => `
+            <tr data-name="${escapeHtml(u.name)}">
+                <td>${escapeHtml(u.name)}${u.name === currentUser.user ? ' <span class="field-hint">(você)</span>' : ''}</td>
+                <td>${u.main
+                    ? '<span class="field-hint">Admin — conta principal (.env)</span>'
+                    : `<select class="custom-select user-role" aria-label="Papel de ${escapeHtml(u.name)}">
+                           ${Object.entries(ROLE_LABELS).map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}
+                       </select>`}</td>
+                <td><div class="row-actions">${u.main ? '' : `
+                    <button type="button" class="btn btn-ghost btn-sm user-password"><i data-lucide="key-round"></i> Nova senha</button>
+                    <button type="button" class="icon-btn danger user-delete" title="Excluir" aria-label="Excluir ${escapeHtml(u.name)}"><i data-lucide="trash-2"></i></button>`}</div>
+                </td>
+            </tr>`).join('');
+        lucide.createIcons();
     }
 
     usersList.addEventListener('change', async e => {
@@ -1376,22 +1453,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    let lastAudit = [];
     async function loadAudit() {
         if (currentUser.role !== 'admin') return;
         const list = document.getElementById('auditList');
         try {
-            const { entries } = await usersApi('GET', '/api/audit');
-            list.innerHTML = entries.length
-                ? entries.map(e => `<tr>
-                    <td>${new Date(e.time).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-                    <td>${escapeHtml(e.user)}</td>
-                    <td>${escapeHtml(e.action)}</td>
-                    <td>${escapeHtml(e.target || '')}</td>
-                </tr>`).join('')
-                : '<tr><td colspan="4" class="empty">Nenhuma atividade registrada ainda.</td></tr>';
+            lastAudit = (await usersApi('GET', '/api/audit')).entries;
+            renderAudit();
         } catch (err) {
             list.innerHTML = `<tr><td colspan="4" class="empty">Não foi possível carregar: ${escapeHtml(err.message)}</td></tr>`;
         }
+    }
+
+    function renderAudit() {
+        const list = document.getElementById('auditList');
+        const page = pageOf('audit', lastAudit, 25);
+        renderPager('audit', page, renderAudit);
+        list.innerHTML = lastAudit.length
+            ? page.items.map(e => `<tr>
+                <td>${new Date(e.time).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                <td>${escapeHtml(e.user)}</td>
+                <td>${escapeHtml(e.action)}</td>
+                <td>${escapeHtml(e.target || '')}</td>
+            </tr>`).join('')
+            : '<tr><td colspan="4" class="empty">Nenhuma atividade registrada ainda.</td></tr>';
     }
     document.getElementById('auditRefresh').addEventListener('click', loadAudit);
 
