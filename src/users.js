@@ -9,7 +9,7 @@
  */
 const crypto = require("crypto");
 const path = require("path");
-const { ADMIN_USER, ADMIN_PASSWORD, SESSION_SECRET, TOTEMS_FILE } = require("./settings");
+const { ADMIN_USER, ADMIN_PASSWORD, SESSION_SECRET, TOTEMS_FILE, DEFAULT_USER_PASSWORD } = require("./settings");
 const { createFileConfigStore, createS3ConfigStore, isConfigConflict } = require("../lib/config-store");
 const { createSyncedDoc } = require("../lib/synced-doc");
 const { hashPassword, verifyPassword } = require("../lib/passwords");
@@ -18,7 +18,15 @@ const { log } = require("./log");
 
 const ROLES = ["admin", "editor"];
 const NAME_RE = /^[A-Za-z0-9._-]{2,40}$/;
+const EMAIL_RE = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 const MIN_PASSWORD = 8;
+
+// Logins are case-insensitive for e-mails (people type them in any case)
+const loginKey = name => {
+  const s = String(name || "").trim();
+  return s.includes("@") ? s.toLowerCase() : s;
+};
+const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
 function createUsers({ storage }) {
   const NAME = "users.json";
@@ -33,18 +41,28 @@ function createUsers({ storage }) {
 
   const mainEnabled = () => !!(ADMIN_USER && ADMIN_PASSWORD);
 
-  // { name, role, main, tag } — `tag` changes when the password does, which
-  // ends that user's sessions (they record the tag at login)
-  function find(name) {
+  // { name, displayName, role, main, tag } — `tag` changes when the password
+  // does, which ends that user's sessions (they record the tag at login)
+  function find(login) {
+    const name = loginKey(login);
     if (mainEnabled() && name === ADMIN_USER) {
-      return { name, role: "admin", main: true, tag: sign(`${ADMIN_USER}:${ADMIN_PASSWORD}`) };
+      return { name, displayName: name, role: "admin", main: true, tag: sign(`${ADMIN_USER}:${ADMIN_PASSWORD}`) };
     }
-    const u = Object.prototype.hasOwnProperty.call(doc.get(), name) ? doc.get()[name] : null;
-    return u ? { name, role: u.role, main: false, tag: sign(`${name}:${u.hash}`) } : null;
+    const u = has(doc.get(), name) ? doc.get()[name] : null;
+    return u ? { name, displayName: u.displayName || name, role: u.role, main: false, tag: sign(`${name}:${u.hash}`) } : null;
+  }
+
+  // Is this login taken? (re-reads the shared file first, for other servers)
+  async function exists(login) {
+    const name = loginKey(login);
+    if (mainEnabled() && name === ADMIN_USER) return true;
+    if (store.remote && !has(doc.get(), name)) await refresh();
+    return has(doc.get(), name);
   }
 
   // The user when name + password are right, else null
-  async function verify(name, password) {
+  async function verify(login, password) {
+    const name = loginKey(login);
     const safeEqual = (a, b) => crypto.timingSafeEqual(
       crypto.createHash("sha256").update(String(a)).digest(),
       crypto.createHash("sha256").update(String(b)).digest(),
@@ -61,7 +79,7 @@ function createUsers({ storage }) {
 
   function list() {
     const others = Object.entries(doc.get())
-      .map(([name, u]) => ({ name, role: u.role, main: false, created: u.created, updated: u.updated }))
+      .map(([name, u]) => ({ name, displayName: u.displayName || "", role: u.role, main: false, created: u.created, updated: u.updated }))
       .sort((a, b) => a.name.localeCompare(b.name));
     return mainEnabled() ? [{ name: ADMIN_USER, role: "admin", main: true }, ...others] : others;
   }
@@ -78,6 +96,33 @@ function createUsers({ storage }) {
     if (mainEnabled() && name === ADMIN_USER) {
       throw new HttpError(400, "A conta principal é definida no .env (ADMIN_USER / ADMIN_PASSWORD) e não pode ser alterada aqui");
     }
+  }
+
+  // Self sign-up rule: 8+ characters with letters and numbers, not the invite
+  function checkOwnPassword(password) {
+    if (typeof password !== "string" || password.length < MIN_PASSWORD || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+      throw new HttpError(400, `A senha precisa ter pelo menos ${MIN_PASSWORD} caracteres, com letras e números`);
+    }
+    if (DEFAULT_USER_PASSWORD && password === DEFAULT_USER_PASSWORD) {
+      throw new HttpError(400, "Escolha uma senha sua, diferente da senha de convite");
+    }
+  }
+
+  // An @domain e-mail signing itself up (see auth.js): always an Editor
+  async function createSelf({ email, displayName, password }) {
+    const name = loginKey(email);
+    const display = String(displayName || "").trim().replace(/\s+/g, " ");
+    if (!EMAIL_RE.test(name)) throw new HttpError(400, "E-mail inválido");
+    if (display.length < 2 || display.length > 60) throw new HttpError(400, "Digite seu nome (2 a 60 caracteres)");
+    checkOwnPassword(password);
+    const hash = await hashPassword(password);
+    const now = new Date().toISOString();
+    await doc.mutate(all => {
+      if (has(all, name)) throw new HttpError(409, "Este e-mail já tem um usuário. Entre com a sua senha.");
+      all[name] = { role: "editor", displayName: display, email: name, hash, created: now, updated: now, self: true };
+    });
+    log.info("Users", `${name} signed up (editor)`);
+    return find(name);
   }
 
   async function create({ name, password, role }) {
@@ -133,7 +178,7 @@ function createUsers({ storage }) {
   }
 
   return {
-    load: () => doc.load(), refresh, find, verify, list, create, update, remove,
+    load: () => doc.load(), refresh, find, exists, verify, list, create, createSelf, update, remove,
     any: () => mainEnabled() || Object.keys(doc.get()).length > 0,
     status: () => (refreshError ? { ok: false, error: refreshError } : { ok: true }),
   };

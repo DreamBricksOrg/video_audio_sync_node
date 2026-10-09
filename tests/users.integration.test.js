@@ -31,7 +31,7 @@ const call = async (cookie, method, p, body) => {
 
 test("the .env account is the main admin", async () => {
   const { body } = await call(admin, "GET", "/api/session");
-  assert.deepEqual(body, { user: "test", role: "admin", main: true });
+  assert.deepEqual(body, { user: "test", name: "test", role: "admin", main: true });
   const users = await call(admin, "GET", "/api/users");
   assert.deepEqual(users.body.map(u => [u.name, u.role, u.main]), [["test", "admin", true]]);
 });
@@ -45,7 +45,7 @@ test("an editor works with campaigns but not with users, the log or other sessio
 
   assert.equal((await loginAs("ana", "errada")).status, 401);
   const { cookie } = await loginAs("ana", "senha-forte-1");
-  assert.deepEqual((await call(cookie, "GET", "/api/session")).body, { user: "ana", role: "editor", main: false });
+  assert.deepEqual((await call(cookie, "GET", "/api/session")).body, { user: "ana", name: "ana", role: "editor", main: false });
   assert.equal((await call(cookie, "GET", "/api/totems")).status, 200);
   assert.equal((await call(cookie, "POST", "/api/totems", { id: "camp_ana", video: "v.mp4", audio: "a.mp3" })).status, 201);
   assert.equal((await call(cookie, "GET", "/api/stats?days=1")).status, 200);

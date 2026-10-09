@@ -70,6 +70,30 @@ paths:
         '503':
           description: Login not configured in `.env`
 
+  /api/signup:
+    post:
+      summary: Create Your Own User (first access)
+      description: |
+        Only when `DEFAULT_USER_PASSWORD` is set. `POST /api/login` with an e-mail of `SIGNUP_EMAIL_DOMAIN`
+        that has no user yet and the invite password answers `{ signup: true, email, token }` (no session).
+        With that token (valid 15 min) this creates an Editor and logs in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, name, password]
+              properties:
+                token: { type: string }
+                name: { type: string, description: "Display name, 2–60 characters" }
+                password: { type: string, description: "8+ characters with letters and numbers, not the invite password" }
+      responses:
+        "201": { description: "Created and logged in (session cookie set)" }
+        "400": { description: "Invalid/expired token, name or password" }
+        "404": { description: "Sign-up is off" }
+        "409": { description: "The e-mail already has a user" }
+
   /api/logout:
     post:
       summary: Admin Logout

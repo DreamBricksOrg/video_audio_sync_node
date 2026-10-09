@@ -78,6 +78,10 @@ module.exports = {
   SESSION_SECRET: env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
   SESSION_SECRET_SET: !!env.SESSION_SECRET,
   SESSION_COOKIE: "db_admin",
+  // Self sign-up: an e-mail of SIGNUP_EMAIL_DOMAIN + this invite password, the
+  // first time, leads to "create your user". Empty = off.
+  DEFAULT_USER_PASSWORD: env.DEFAULT_USER_PASSWORD || "",
+  SIGNUP_EMAIL_DOMAIN: (env.SIGNUP_EMAIL_DOMAIN || "dreambricks.com.br").toLowerCase(),
   LOGIN_MAX_FAILURES: 5,
   LOGIN_LOCK_MS: 60 * 1000,
 };

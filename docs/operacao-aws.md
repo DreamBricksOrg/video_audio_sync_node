@@ -231,6 +231,7 @@ Com 8.000 celulares as falhas vieram do **cliente** (Windows tem 16.384 portas d
 - A conta do `.env` (`ADMIN_USER` / `ADMIN_PASSWORD`) é a **conta principal**: papel Admin, não aparece para edição no admin e serve para entrar se todas as outras se perderem.
 - Na seção **Usuários** do admin, um Admin cria pessoas com papel **Admin** (tudo) ou **Editor** (campanhas, mídia, links e estatísticas). Trocar a senha ou excluir encerra as sessões abertas da pessoa; trocar o papel vale na hora.
 - Os usuários ficam em `<prefixo>/users.json` no bucket (senhas com hash scrypt) e valem em todos os servidores do mesmo bucket/prefixo.
+- **Cadastro próprio** (`DEFAULT_USER_PASSWORD` no `.env`): quem entra com um e-mail `@dreambricks.com.br` (`SIGNUP_EMAIL_DOMAIN`) e a senha de convite, na primeira vez, cai na página **Criar meu usuário** — nome e senha própria (8+ caracteres, letras e números, diferente da de convite) — e entra como **Editor**. Depois o login é o e-mail com a senha própria; a de convite não funciona mais para esse e-mail. Para parar novos cadastros, troque ou apague a senha de convite e reinicie.
 - **Registro de atividades** (só Admin): quem entrou, saiu, enviou/renomeou/excluiu arquivos, criou/editou/excluiu campanhas e usuários. Um arquivo por mês em `<prefixo>/audit/`, guardado por 12 meses.
 
 ## 8. Backup

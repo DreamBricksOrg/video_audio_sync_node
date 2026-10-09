@@ -32,11 +32,18 @@ form.addEventListener('submit', async (e) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password }),
         });
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body.signup) {
+            // First access of an @dreambricks e-mail with the invite password:
+            // keep the signed pass out of the address bar and create the user
+            sessionStorage.setItem('signup', JSON.stringify({ token: body.token, email: body.email }));
+            location.assign('/signup');
+            return;
+        }
         if (res.ok) {
             location.replace(nextUrl());
             return;
         }
-        const body = await res.json().catch(() => ({}));
         showError(body.error || `Não foi possível entrar (${res.status})`);
         passwordInput.select();
     } catch (_) {

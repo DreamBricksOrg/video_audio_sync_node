@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await api('/api/session');
             currentUser = await res.json();
-            const label = `${currentUser.user} · ${currentUser.role === 'admin' ? 'Admin' : 'Editor'}`;
+            const label = `${currentUser.name || currentUser.user} · ${currentUser.role === 'admin' ? 'Admin' : 'Editor'}`;
             document.getElementById('currentUser').textContent = label;
             document.getElementById('menuUser').textContent = label;
         } catch (_) {}
@@ -1437,7 +1437,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderPager('users', page, renderUsers);
         usersList.innerHTML = page.items.map(u => `
             <tr data-name="${escapeHtml(u.name)}">
-                <td>${escapeHtml(u.name)}${u.name === currentUser.user ? ' <span class="field-hint">(você)</span>' : ''}</td>
+                <td>${u.displayName ? `${escapeHtml(u.displayName)}<br><span class="field-hint">${escapeHtml(u.name)}</span>` : escapeHtml(u.name)}${u.name === currentUser.user ? ' <span class="field-hint">(você)</span>' : ''}</td>
                 <td>${u.main
                     ? '<span class="field-hint">Admin — conta principal (.env)</span>'
                     : `<select class="custom-select user-role" aria-label="Papel de ${escapeHtml(u.name)}">

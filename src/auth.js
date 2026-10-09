@@ -7,7 +7,9 @@ const crypto = require("crypto");
 const path = require("path");
 const {
   ADMIN_USER, SESSION_COOKIE, LOGIN_MAX_FAILURES, LOGIN_LOCK_MS, TOTEMS_FILE, STATIC_DIR,
+  SESSION_SECRET, DEFAULT_USER_PASSWORD, SIGNUP_EMAIL_DOMAIN,
 } = require("./settings");
+const { HttpError } = require("./http-error");
 const { createFileConfigStore, createS3ConfigStore, isConfigConflict } = require("../lib/config-store");
 const { createSyncedDoc } = require("../lib/synced-doc");
 const { log } = require("./log");
@@ -118,7 +120,7 @@ function createAuth({ storage, users, audit }) {
     currentSession(req).then(session => {
       if (session) {
         req.sessionKey = session.key;
-        req.user = { name: session.user.name, role: session.user.role, main: session.user.main };
+        req.user = { name: session.user.name, displayName: session.user.displayName, role: session.user.role, main: session.user.main };
         return next();
       }
       if (req.originalUrl.startsWith("/api/")) return res.status(401).json({ error: "Não autenticado" });
@@ -135,6 +137,46 @@ function createAuth({ storage, users, audit }) {
   // Brute-force guard: lock an IP for a minute after repeated failures
   const loginFailures = new Map(); // ip → { count, lockedUntil }
 
+  // Starts a session for `user`: saved in sessions.json, id in the cookie
+  async function startSession(req, res, user) {
+    const id = crypto.randomBytes(32).toString("base64url");
+    await sessionsDoc.mutate(all => {
+      all[sessionKey(id)] = { created: new Date().toISOString(), user: user.name, auth: user.tag };
+      // Keep the newest MAX_SESSIONS (old forgotten browsers drop off)
+      const keys = Object.keys(all).sort((a, b) => String(all[b].created).localeCompare(String(all[a].created)));
+      keys.slice(MAX_SESSIONS).forEach(k => delete all[k]);
+    });
+    // ~10 years: the session only ends on logout
+    setSessionCookie(req, res, id, 10 * 365 * 24 * 3600);
+  }
+
+  // ── Self sign-up ──
+  // An e-mail of SIGNUP_EMAIL_DOMAIN that has no user yet + the invite password
+  // (DEFAULT_USER_PASSWORD) gets a signed pass, valid 15 minutes, for the
+  // "create your user" page. The pass only proves that step happened.
+  const SIGNUP_TTL_MS = 15 * 60 * 1000;
+  const signupOn = () => !!DEFAULT_USER_PASSWORD;
+  const domainEmail = login => {
+    const email = String(login || "").trim().toLowerCase();
+    const at = email.lastIndexOf("@");
+    return at > 0 && email.slice(at + 1) === SIGNUP_EMAIL_DOMAIN && /^[a-z0-9._%+-]+$/.test(email.slice(0, at)) ? email : null;
+  };
+  const signPass = payload => crypto.createHmac("sha256", SESSION_SECRET).update(`signup:${payload}`).digest("base64url");
+  function signupPass(email) {
+    const payload = Buffer.from(JSON.stringify({ email, exp: Date.now() + SIGNUP_TTL_MS })).toString("base64url");
+    return `${payload}.${signPass(payload)}`;
+  }
+  function readSignupPass(pass) {
+    const [payload, sig] = String(pass || "").split(".");
+    if (!payload || !sig || !safeEqual(sig, signPass(payload))) return null;
+    try {
+      const data = JSON.parse(Buffer.from(payload, "base64url").toString());
+      return data.exp > Date.now() && domainEmail(data.email) ? data.email : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // Login/logout and the admin pages; everything registered after this on
   // /api and /api-docs requires a session
   function register(app) {
@@ -144,7 +186,7 @@ function createAuth({ storage, users, audit }) {
     });
 
     app.post("/api/login", async (req, res) => {
-      if (!users.any()) {
+      if (!users.any() && !signupOn()) {
         return res.status(503).json({ error: "Login não configurado (defina ADMIN_USER e ADMIN_PASSWORD no .env)" });
       }
 
@@ -157,6 +199,14 @@ function createAuth({ storage, users, audit }) {
 
       const { username, password } = req.body || {};
       const user = await users.verify(String(username || ""), String(password || ""));
+
+      // First time of an @domain e-mail with the invite password → "create your user"
+      const email = !user && signupOn() && domainEmail(username);
+      if (email && safeEqual(password || "", DEFAULT_USER_PASSWORD) && !(await users.exists(email))) {
+        log.info("Auth", `Sign-up started for ${email} from ${ip}`);
+        return res.json({ signup: true, email, token: signupPass(email) });
+      }
+
       if (!user) {
         // An expired lock starts a fresh count
         const count = entry && !entry.lockedUntil ? entry.count + 1 : 1;
@@ -166,23 +216,42 @@ function createAuth({ storage, users, audit }) {
       }
 
       loginFailures.delete(ip);
-      const id = crypto.randomBytes(32).toString("base64url");
       try {
-        await sessionsDoc.mutate(all => {
-          all[sessionKey(id)] = { created: new Date().toISOString(), user: user.name, auth: user.tag };
-          // Keep the newest MAX_SESSIONS (old forgotten browsers drop off)
-          const keys = Object.keys(all).sort((a, b) => String(all[b].created).localeCompare(String(all[a].created)));
-          keys.slice(MAX_SESSIONS).forEach(k => delete all[k]);
-        });
+        await startSession(req, res, user);
       } catch (err) {
         log.error("Auth", "Could not save the session:", err);
         return res.status(502).json({ error: "Não foi possível iniciar a sessão. Tente de novo." });
       }
-      // ~10 years: the session only ends on logout
-      setSessionCookie(req, res, id, 10 * 365 * 24 * 3600);
       log.info("Auth", `${user.name} logged in from ${ip}`);
       audit.record(user.name, "Entrou");
       res.json({ success: true, user: user.name, role: user.role });
+    });
+
+    // "Create your user" page and its form (public: the signed pass is the check)
+    app.get("/signup", (req, res) => {
+      if (!signupOn()) return res.redirect("/login");
+      res.sendFile(path.join(STATIC_DIR, "signup.html"));
+    });
+
+    app.post("/api/signup", async (req, res) => {
+      if (!signupOn()) return res.status(404).json({ error: "Cadastro desligado" });
+      const { token, name, password } = req.body || {};
+      const email = readSignupPass(token);
+      if (!email) {
+        return res.status(400).json({ error: "O link de cadastro expirou ou é inválido. Entre de novo com seu e-mail e a senha de convite." });
+      }
+      let user;
+      try {
+        user = await users.createSelf({ email, displayName: name, password });
+        await startSession(req, res, user);
+      } catch (err) {
+        if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+        log.error("Auth", "Sign-up failed:", err);
+        return res.status(502).json({ error: "Não foi possível criar o usuário. Tente de novo." });
+      }
+      log.info("Auth", `${email} created their user and logged in`);
+      audit.record(email, "Criou a própria conta");
+      res.status(201).json({ success: true, user: email, name: user.displayName, role: user.role });
     });
 
     app.post("/api/logout", async (req, res) => {
@@ -208,7 +277,9 @@ function createAuth({ storage, users, audit }) {
     app.use("/api", requireAuth);
     app.use("/api-docs", requireAuth);
 
-    app.get("/api/session", (req, res) => res.json({ user: req.user.name, role: req.user.role, main: req.user.main }));
+    app.get("/api/session", (req, res) => res.json({
+      user: req.user.name, name: req.user.displayName || req.user.name, role: req.user.role, main: req.user.main,
+    }));
 
     // How many browsers are logged in (all users)
     app.get("/api/sessions", (req, res) => {

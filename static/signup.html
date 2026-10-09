@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Criar usuário — DreamBricks</title>
+    <link rel="stylesheet" href="/static/css/design-system/styles.css">
+    <link rel="stylesheet" href="/static/css/login.css">
+</head>
+<body>
+    <main class="login-page">
+        <form id="signupForm" class="login-card" novalidate>
+            <img src="/static/images/dreambricks-horizontal-onlight.svg" alt="DreamBricks" class="brand-logo">
+
+            <div class="login-heading">
+                <h1>Criar meu usuário</h1>
+                <p>Primeiro acesso de <strong id="signupEmail"></strong>. Escolha como quer aparecer e a sua senha.</p>
+            </div>
+
+            <div class="field">
+                <label for="name">Seu nome</label>
+                <input id="name" name="name" type="text" autocomplete="name" maxlength="60" required autofocus>
+            </div>
+
+            <div class="field">
+                <label for="password">Nova senha</label>
+                <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" required
+                       aria-describedby="passwordHint">
+                <p id="passwordHint" class="field-hint">Mínimo 8 caracteres, com letras e números.</p>
+            </div>
+
+            <div class="field">
+                <label for="password2">Repita a senha</label>
+                <input id="password2" name="password2" type="password" autocomplete="new-password" minlength="8" required>
+            </div>
+
+            <p id="signupError" class="login-error" role="alert" hidden></p>
+
+            <button id="signupBtn" type="submit" class="btn btn-primary">Criar usuário e entrar</button>
+            <a href="/login" class="back-link">Voltar para o login</a>
+        </form>
+    </main>
+
+    <script src="/static/js/signup.js"></script>
+</body>
+</html>
